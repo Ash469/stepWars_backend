@@ -13,7 +13,15 @@ const userSchema = new mongoose.Schema({
   stepGoal: Number,
   todaysStepCount: Number,
   coins: Number,
-  multipliers: Object,
+  multipliers: {
+    type: Map,
+    of: Number,
+    default: {
+      '1_5x': 0,
+      '2x': 0,
+      '3x': 0
+    }
+  },
   rewards: {
     type: Map,
     of: [{

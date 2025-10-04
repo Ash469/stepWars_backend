@@ -4,6 +4,11 @@ import BotService from "../utils/botService.js";
 import UserModel from "../models/user.js";
 import { generateUniqueReward } from "../utils/rewardService.js";
 
+const MULTIPLIER_COSTS = {
+  '1_5x': 15,
+  '2x': 20,
+  '3x': 30
+};
 
 export const createBotBattle = async (req, res) => {
     const { userId, botId } = req.body;
@@ -162,7 +167,7 @@ export const endBattle = async (req, res) => {
         if (!player1Id || !player2Id) {
             return res.status(500).json({ error: "Corrupted battle data: missing player IDs." });
         }
-        
+
         let winnerId = null;
         let loserId = null;
         let result = "DRAW";
@@ -170,7 +175,7 @@ export const endBattle = async (req, res) => {
 
         const scoreDifference = Math.abs(player1Score - player2Score);
 
-        if (scoreDifference >= 1000) {
+        if (scoreDifference >= 100) {
             // It's a Knockout win
             isKnockout = true;
             result = "KO";
@@ -181,7 +186,7 @@ export const endBattle = async (req, res) => {
                 winnerId = player2Id;
                 loserId = player1Id;
             }
-        } else if (scoreDifference > 100) {
+        } else if (scoreDifference > 20) {
             // It's a standard Win by points
             result = "WIN";
             if (player1Score > player2Score) {
@@ -278,5 +283,68 @@ export const endBattle = async (req, res) => {
     } catch (error) {
         console.error("Error in endBattle controller:", error);
         res.status(500).json({ error: "An unexpected error occurred while ending the battle." });
+    }
+};
+
+export const useMultiplier = async (req, res) => {
+    const { gameId, userId, multiplierType } = req.body;
+
+    if (!gameId || !userId || !multiplierType) {
+        return res.status(400).json({ error: "gameId, userId, and multiplierType are required." });
+    }
+
+    if (!MULTIPLIER_COSTS[multiplierType]) {
+        return res.status(400).json({ error: "Invalid multiplier type." });
+    }
+
+    try {
+        const user = await UserModel.findOne({ uid: userId });
+        if (!user) {
+            return res.status(404).json({ error: "User not found." });
+        }
+
+        const hasMultiplier = (user.multipliers.get(multiplierType) || 0) > 0;
+        let updateOperation = {};
+
+        if (hasMultiplier) {
+            console.log(`User ${userId} is using an existing '${multiplierType}' multiplier.`);
+            updateOperation = { $inc: { [`multipliers.${multiplierType}`]: -1 } };
+
+        } else {
+            const cost = MULTIPLIER_COSTS[multiplierType];
+            console.log(`User ${userId} is buying a '${multiplierType}' multiplier for ${cost} coins.`);
+
+            if (user.coins < cost) {
+                return res.status(402).json({ error: "Not enough coins." });
+            }
+            updateOperation = { $inc: { coins: -cost } };
+        }
+
+        await UserModel.updateOne({ uid: userId }, updateOperation);
+
+        const rtdb = admin.database();
+        const gameRef = rtdb.ref(`games/${gameId}`);
+        const gameSnapshot = await gameRef.once('value');
+        const gameData = gameSnapshot.val();
+
+        if (!gameData) {
+            return res.status(404).json({ error: "Game not found in Realtime Database." });
+        }
+        
+        const multiplierValue = parseFloat(multiplierType.replace('x', ''));
+
+        if (gameData.player1Id === userId) {
+            await gameRef.update({ multiplier1: multiplierValue });
+        } else if (gameData.player2Id === userId) {
+            await gameRef.update({ multiplier2: multiplierValue });
+        } else {
+            return res.status(403).json({ error: "User is not a player in this game." });
+        }
+
+        res.status(200).json({ success: true, message: `Multiplier ${multiplierType} activated!` });
+
+    } catch (error) {
+        console.error("Error in useMultiplier controller:", error);
+        res.status(500).json({ error: "An unexpected server error occurred." });
     }
 };
