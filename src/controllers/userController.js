@@ -13,12 +13,12 @@ export const getUserProfile = async (req, res) => {
         if (!uid) {
             return res.status(400).json({ error: 'User UID is required.' });
         }
-        await handleDailyReset(uid, lastActivityDate);
         const user = await UserModel.findOne({ uid: uid });
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
-        res.status(200).json(user);
+        const updatedUser = await handleDailyReset(user);
+        res.status(200).json(updatedUser || user);
 
     } catch (error) {
         console.error("Error fetching user profile:", error);

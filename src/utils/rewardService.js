@@ -1,7 +1,8 @@
-import UserModel from '../models/user.js'; 
+import  UserModel  from '../models/user.js';
 import RewardModel from '../models/reward.js';
+import { updateDailyActivity } from './activityService.js';
 
-
+// Helper functions (selectTierByProbability, tiers array) should be at the top
 const tiers = [
     { name: 'Legendary', weight: 1 },
     { name: 'Mythic', weight: 9 },
@@ -18,48 +19,43 @@ function selectTierByProbability() {
         }
         randomNum -= tier.weight;
     }
-    return 'Rare'; 
+    return 'Rare';
 }
 
+/**
+ * ✨ CORRECTED FUNCTION: Decides a potential reward WITHOUT granting it.
+ * This is lightweight and safe to call at the start of a battle.
+ * @param {string} userId - The ID of the player to check for duplicates against.
+ * @returns {Promise<Object|null>} The potential reward document, or null.
+ */
+export const decidePotentialReward = async (userId) => {
+  try {
+    const user = await UserModel.findOne({ uid: userId });
+    if (!user) throw new Error("User not found for reward decision.");
 
-export async function generateUniqueReward(winnerId) {
-    try {
-        const winner = await UserModel.findOne({ uid: winnerId });
-        if (!winner) throw new Error(`Winner with ID ${winnerId} not found`);
-        const ownedRewardIds = new Set(
-            Object.values(winner.rewards.toObject()).flat().map(id => id.toString())
-        );
+    const ownedRewardIds = new Set(
+      Object.values(user.rewards.toObject()).flat().map(id => id.toString())
+    );
 
-        const initialTierName = selectTierByProbability();
-        let tierIndex = tiers.findIndex(t => t.name === initialTierName);
-        for (let i = tierIndex; i < tiers.length; i++) {
-            const currentTier = tiers[i].name;
-            const potentialRewards = await RewardModel.find({ tier: currentTier });
-            const unownedRewards = potentialRewards.filter(
-                reward => !ownedRewardIds.has(reward._id.toString())
-            );
+    const initialTierName = selectTierByProbability();
+    let tierIndex = tiers.findIndex(t => t.name === initialTierName);
 
-            if (unownedRewards.length > 0) {
-                const randomIndex = Math.floor(Math.random() * unownedRewards.length);
-                const grantedReward = unownedRewards[randomIndex];
+    for (let i = tierIndex; i < tiers.length; i++) {
+      const currentTier = tiers[i].name;
+      const potentialRewards = await RewardModel.find({ tier: currentTier });
+      const unownedRewards = potentialRewards.filter(
+        reward => !ownedRewardIds.has(reward._id.toString())
+      );
 
-                const rewardCategory = grantedReward.type;
-                await UserModel.updateOne(
-                    { uid: winnerId },
-                    { $push: { [`rewards.${rewardCategory}`]: grantedReward._id } }
-                );
-                console.log(`Granted new reward: '${grantedReward.name}' to user ${winnerId}`);
-                return { granted: 'item', item: grantedReward };
-            }
-        }
-
-        // Fallback to coins if user owns everything
-        const fallbackCoins = 500;
-        await UserModel.updateOne({ uid: winnerId }, { $inc: { coins: fallbackCoins } });
-        return { granted: 'coins', amount: fallbackCoins, reason: 'All items collected!' };
-
-    } catch (error) {
-        console.error("Error in generateUniqueReward:", error);
-        return { granted: 'error', reason: 'Server error during reward generation.' };
+      if (unownedRewards.length > 0) {
+        const randomIndex = Math.floor(Math.random() * unownedRewards.length);
+        // Simply return the decided reward object. DO NOT SAVE ANYTHING.
+        return unownedRewards[randomIndex];
+      }
     }
+    return null; // No new rewards are available for this user
+  } catch (error) {
+    console.error("Error deciding potential reward:", error);
+    return null;
+  }
 };

@@ -2,7 +2,8 @@ import { admin } from "../config/firebase.js";
 import BattleModel from "../models/battle.js";
 import BotService from "../utils/botService.js";
 import UserModel from "../models/user.js";
-import { generateUniqueReward } from "../utils/rewardService.js";
+import RewardModel from "../models/reward.js";
+import { decidePotentialReward } from "../utils/rewardService.js";
 
 const MULTIPLIER_COSTS = {
     '1_5x': 15,
@@ -21,19 +22,10 @@ export const createBotBattle = async (req, res) => {
         const newGameRef = rtdb.ref("games").push();
         const gameId = newGameRef.key;
 
-        if (!gameId) {
-            throw new Error("Failed to generate a unique game ID from Firebase.");
-        }
-        let selectedBot;
-        if (botId) {
-            selectedBot = BotService.getBotById(botId);
-            if (!selectedBot) {
-                console.warn(`[BotBattle] Invalid botId '${botId}' received. Selecting random bot as a fallback.`);
-                selectedBot = BotService.selectRandomBot();
-            }
-        } else {
-            selectedBot = BotService.selectRandomBot();
-        }
+        const selectedBot = botId ? BotService.getBotById(botId) : BotService.selectRandomBot();
+
+        const potentialReward = await decidePotentialReward(userId);
+        console.log(`[createBotBattle] Potential reward selected for game ${gameId}: ${potentialReward?.name || 'None'}`);
 
         const newBattle = new BattleModel({
             _id: gameId,
@@ -41,6 +33,7 @@ export const createBotBattle = async (req, res) => {
             player2Id: selectedBot.id,
             gameType: 'BOT',
             status: 'ONGOING',
+            potentialReward: potentialReward ? potentialReward._id : null,
         });
         await newBattle.save();
 
@@ -50,8 +43,7 @@ export const createBotBattle = async (req, res) => {
             player2Id: selectedBot.id,
             gameStatus: 'ongoing',
             startTime: admin.database.ServerValue.TIMESTAMP,
-            step1Count: 0,
-            step2Count: 0,
+            potentialReward: potentialReward ? { name: potentialReward.name, tier: potentialReward.tier } : null,
             player1Score: 0,
             player2Score: 0,
             multiplier1: 1.0,
@@ -148,13 +140,10 @@ export const joinFriendBattle = async (req, res) => {
 
 export const endBattle = async (req, res) => {
     const { gameId } = req.body;
-    if (!gameId) {
-        return res.status(400).json({ error: "Game ID is required" });
-    }
+    if (!gameId) return res.status(400).json({ error: "Game ID is required" });
 
     try {
-        const rtdb = admin.database();
-        const rtdbRef = rtdb.ref(`games/${gameId}`);
+        const rtdbRef = admin.database().ref(`games/${gameId}`);
         const [snapshot, battleDetails] = await Promise.all([
             rtdbRef.once("value"),
             BattleModel.findById(gameId)
@@ -165,113 +154,100 @@ export const endBattle = async (req, res) => {
         }
 
         const battleData = snapshot.val();
+        console.log(`battelData: ${battleData}`);
         const { player1Id, player2Id, player1Score = 0, player2Score = 0 } = battleData;
-        const gameType = battleDetails.gameType; // 'BOT' or 'FRIEND'
+
+        const gameType = battleDetails.gameType;
 
         if (!player1Id || !player2Id) {
-            return res.status(500).json({ error: "Corrupted battle data: missing player IDs." });
+            return res.status(500).json({ error: "Corrupted battle data." });
         }
-        let winnerId = null;
-        let loserId = null;
-        let result = "DRAW";
-        let isKnockout = false;
-        let winnerCoins = 0;
-        let loserCoins = 0;
+
+        let winnerId = null, loserId = null, result = "DRAW", isKnockout = false;
+        let winnerCoins = 0, loserCoins = 0;
+        const scoreDifference = Math.abs(player1Score - player2Score);
 
         if (gameType === 'FRIEND') {
-            console.log(`[endBattle] Applying FRIEND logic for game ${gameId}`);
+            if (scoreDifference >= 5000) { result = "KO"; isKnockout = true; }
+            else if (scoreDifference > 100) { result = "WIN"; }
             const pot = player1Score + player2Score;
-            const scoreDifference = Math.abs(player1Score - player2Score);
-
-            if (scoreDifference >= 5000) {
-                result = "KO";
-                isKnockout = true;
-                winnerCoins = pot; // Winner takes all
-            } else if (scoreDifference > 100) {
-                result = "WIN";
-                winnerCoins = pot; // Winner takes all
-            } else {
-                result = "DRAW";
-                winnerCoins = Math.floor(pot / 2); // Split the pot
-                loserCoins = Math.ceil(pot / 2);
-            }
-
-            if (result !== "DRAW") {
-                winnerId = (player1Score > player2Score) ? player1Id : player2Id;
-                loserId = (player1Score > player2Score) ? player2Id : player1Id;
-            }
-
-        } else {
-            console.log(`[endBattle] Applying BOT logic for game ${gameId}`);
-            const scoreDifference = Math.abs(player1Score - player2Score);
-
-            if (scoreDifference >= 100) {
-                result = "KO";
-                isKnockout = true;
-            } else if (scoreDifference > 20) {
-                result = "WIN";
-            } else {
-                result = "DRAW";
-            }
-
-            if (result === "DRAW") {
-                winnerCoins = 25;
-                loserCoins = 25;
-            } else {
-                winnerId = (player1Score > player2Score) ? player1Id : player2Id;
-                loserId = (player1Score > player2Score) ? player2Id : player1Id;
-                winnerCoins = 150;
-                loserCoins = 10;
-            }
+            result === "DRAW" ? (winnerCoins = Math.floor(pot / 2), loserCoins = Math.ceil(pot / 2)) : (winnerCoins = pot);
+        } else { // BOT Battle Logic
+            if (scoreDifference >= 1000) { result = "KO"; isKnockout = true; }
+            else if (scoreDifference > 100) { result = "WIN"; }
+            result === "DRAW" ? (winnerCoins = 25, loserCoins = 25) : (winnerCoins = 150, loserCoins = 10);
         }
 
-        console.log(`[endBattle] Result: ${result}, Winner: ${winnerId}`);
+        if (result !== "DRAW") {
+            winnerId = (player1Score > player2Score) ? player1Id : player2Id;
+            loserId = (player1Score > player2Score) ? player2Id : player1Id;
+        }
 
-        let rewardResult = {};
-        if (winnerId) {
-            rewardResult = await generateUniqueReward(winnerId);
+        console.log(`[endBattle] Game ${gameId} Result: ${result}, Winner: ${winnerId}, KO: ${isKnockout}`);
+
+        let finalRewardItem = null;
+        if (winnerId && !winnerId.startsWith('bot_') && battleDetails.potentialReward) {
+            const rewardToGrant = await RewardModel.findById(battleDetails.potentialReward);
+            if (rewardToGrant) {
+                const rewardCategory = rewardToGrant.type;
+                await UserModel.updateOne({ uid: winnerId }, { $push: { [`rewards.${rewardCategory}`]: rewardToGrant._id } });
+                finalRewardItem = rewardToGrant;
+                console.log(`[endBattle] Granted pre-selected reward '${rewardToGrant.name}' to ${winnerId}.`);
+            }
         }
 
         const updatePromises = [];
-        if (result === "DRAW") {
-            const p1Update = UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } });
-            const p2Update = UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } });
-            updatePromises.push(p1Update, p2Update);
-            // updateDailyActivity(player1Id, { $inc: { totalBattles: 1, coinsEarned: winnerCoins } });
-            // updateDailyActivity(player2Id, { $inc: { totalBattles: 1, coinsEarned: loserCoins } });
+        if (result === 'DRAW') {
+            console.log("Result is DRAW. Preparing to update real user stats.");
+
+            // Only prepare an update if player 1 is NOT a bot
+            if (!player1Id.startsWith('bot_')) {
+                const p1Update = UserModel.findOneAndUpdate(
+                    { uid: player1Id },
+                    { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } },
+                    { new: true } // Use this to debug!
+                );
+                updatePromises.push(p1Update);
+            }
+
+            // Only prepare an update if player 2 is NOT a bot
+            if (!player2Id.startsWith('bot_')) {
+                const p2Update = UserModel.findOneAndUpdate(
+                    { uid: player2Id },
+                    { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } },
+                    { new: true }
+                );
+                updatePromises.push(p2Update);
+            }
+
         } else {
-            const winnerUpdate = UserModel.findOneAndUpdate({ uid: winnerId }, {
-                $inc: {
-                    coins: winnerCoins,
-                    'stats.totalBattles': 1,
-                    'stats.battlesWon': 1,
-                    'stats.knockouts': isKnockout ? 1 : 0,
-                }
-            });
-            const loserUpdate = UserModel.findOneAndUpdate({ uid: loserId }, {
-                $inc: {
-                    coins: loserCoins,
-                    'stats.totalBattles': 1
-                }
-            });
-            updatePromises.push(winnerUpdate, loserUpdate);
-            // // ✨ Log daily activity for winner and loser
-            // updateDailyActivity(winnerId, {
-            //     $inc: {
-            //         totalBattles: 1,
-            //         battlesWon: 1,
-            //         knockouts: isKnockout ? 1 : 0,
-            //         coinsEarned: winnerCoins
-            //     }
-            // });
-            // updateDailyActivity(loserId, {
-            //     $inc: {
-            //         totalBattles: 1,
-            //         coinsEarned: loserCoins
-            //     }
-            // });
+            console.log("stats update if result is not a draw");
+            if (winnerId && !winnerId.startsWith('bot_')) {
+                const winnerUpdate = UserModel.findOneAndUpdate({ uid: winnerId }, {
+                    $inc: {
+                        coins: winnerCoins,
+                        'stats.totalBattles': 1,
+                        'stats.battlesWon': 1,
+                        'stats.knockouts': isKnockout ? 1 : 0,
+                    }
+                });
+                updatePromises.push(winnerUpdate);
+            }
+
+            if (loserId && !loserId.startsWith('bot_')) {
+                const loserUpdate = UserModel.findOneAndUpdate({ uid: loserId }, {
+                    $inc: {
+                        coins: loserCoins,
+                        'stats.totalBattles': 1
+                    }
+                }, { new: true });
+                updatePromises.push(loserUpdate);
+            }
         }
-        await Promise.all(updatePromises);
+        if (updatePromises.length > 0) {
+            const updateResults = await Promise.all(updatePromises);
+            // console.log("Database update results:", updateResults);
+        }
 
         const finalBattleState = {
             status: "COMPLETED",
@@ -279,24 +255,25 @@ export const endBattle = async (req, res) => {
             result,
             player1FinalScore: player1Score,
             player2FinalScore: player2Score,
-            rewards: {
-                coins: winnerCoins + (rewardResult.granted === 'coins' ? rewardResult.amount : 0),
-                item: rewardResult.granted === 'item' ? rewardResult.item._id : null
-            },
         };
-        await BattleModel.findByIdAndUpdate(gameId, finalBattleState, { new: true, upsert: true });
+
+
+        await BattleModel.findByIdAndUpdate(gameId, {
+            status: "COMPLETED", winnerId, result, player1FinalScore: player1Score, player2FinalScore: player2Score,
+            "rewards.coins": winnerCoins,
+            "rewards.item": finalRewardItem ? finalRewardItem._id : null,
+        });
 
         await rtdbRef.remove();
 
         res.status(200).json({
-            message: "Battle ended successfully.",
             finalState: {
                 winnerId,
                 result,
                 rewards: {
-                    coins: finalBattleState.rewards.coins,
-                    item: rewardResult.granted === 'item' ? rewardResult.item : null,
-                    message: rewardResult.reason || (rewardResult.item ? `You won a new ${rewardResult.item.tier} item!` : null)
+                    coins: winnerCoins,
+                    item: finalRewardItem,
+                    message: finalRewardItem ? `You won a new ${finalRewardItem.tier} item!` : null
                 }
             }
         });
@@ -351,15 +328,18 @@ export const useMultiplier = async (req, res) => {
         if (!gameData) {
             return res.status(404).json({ error: "Game not found in Realtime Database." });
         }
+        const isPlayer1 = gameData.player1Id === userId;
+        if ((isPlayer1 && gameData.player1MultiplierUsed) || (!isPlayer1 && gameData.player2MultiplierUsed)) {
+            return res.status(403).json({ error: "You have already used a multiplier in this battle." });
+        }
+        await UserModel.updateOne({ uid: userId }, updateOperation);
 
-        const multiplierValue = parseFloat(multiplierType.replace('x', ''));
+        const multiplierValue = parseFloat(multiplierType.replace('_', '.').replace('x', ''));
 
-        if (gameData.player1Id === userId) {
-            await gameRef.update({ multiplier1: multiplierValue });
-        } else if (gameData.player2Id === userId) {
-            await gameRef.update({ multiplier2: multiplierValue });
+        if (isPlayer1) {
+            await gameRef.update({ multiplier1: multiplierValue, player1MultiplierUsed: true });
         } else {
-            return res.status(403).json({ error: "User is not a player in this game." });
+            await gameRef.update({ multiplier2: multiplierValue, player2MultiplierUsed: true });
         }
 
         res.status(200).json({ success: true, message: `Multiplier ${multiplierType} activated!` });

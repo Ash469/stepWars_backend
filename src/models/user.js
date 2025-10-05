@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
   profileImageUrl: String,
   stepGoal: Number,
   todaysStepCount: Number,
-  coins: Number,
+  coins: { type: Number, default: 0 },
   multipliers: {
     type: Map,
     of: Number,
@@ -35,7 +35,15 @@ const userSchema = new mongoose.Schema({
       Badge: []
     }
   },
-  stats: Object
+   stats: {
+    type: {
+      battlesWon: { type: Number, default: 0 },
+      knockouts: { type: Number, default: 0 },
+      totalBattles: { type: Number, default: 0 },
+    },
+    default: () => ({ battlesWon: 0, knockouts: 0, totalBattles: 0 })
+  },
+  lastActive: { type: Date, default: Date.now }
 });
 
 const UserModel = mongoose.model("User", userSchema);
