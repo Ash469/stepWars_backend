@@ -1,5 +1,5 @@
 import UserModel from '../models/user.js'; 
-import RewardModel from '../models/RewardModel.js';
+import RewardModel from '../models/reward.js';
 
 
 const tiers = [
@@ -18,29 +18,20 @@ function selectTierByProbability() {
         }
         randomNum -= tier.weight;
     }
-    return 'Rare'; // Fallback
+    return 'Rare'; 
 }
 
-/**
- * Generates a new, unowned reward for a user.
- * It intelligently searches for an item the user doesn't have, cascading down
- * tiers if a tier is already fully collected by the user.
- * @param {string} winnerId - The UID of the winning user.
- * @returns {Promise<Object>} An object with details about the granted item or fallback coins.
- */
+
 export async function generateUniqueReward(winnerId) {
     try {
         const winner = await UserModel.findOne({ uid: winnerId });
         if (!winner) throw new Error(`Winner with ID ${winnerId} not found`);
-
-        // Create a flat Set of all owned reward IDs for easy lookup
         const ownedRewardIds = new Set(
             Object.values(winner.rewards.toObject()).flat().map(id => id.toString())
         );
 
         const initialTierName = selectTierByProbability();
         let tierIndex = tiers.findIndex(t => t.name === initialTierName);
-
         for (let i = tierIndex; i < tiers.length; i++) {
             const currentTier = tiers[i].name;
             const potentialRewards = await RewardModel.find({ tier: currentTier });

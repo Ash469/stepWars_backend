@@ -5,16 +5,17 @@ import authRoutes from "./routes/auth.js";
 import {db,admin} from "./config/firebase.js"; 
 import UserModel from "./models/user.js";
 import battleRoutes from "./routes/battle.js";
-import userRoutes from "./routes/userRoutes.js";
+import userRoutes from "./routes/user.js";
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
 // Routes
-app.use("/auth", authRoutes);
-
 app.get("/", (req, res) => res.send("StepWars Backend Alive 🚀"));
+app.use("/auth", authRoutes);
+app.use("/api/battle", battleRoutes);
+app.use("/api/user",userRoutes);
 
 app.get("/sync-all-users", async (req, res) => {
   try {
@@ -68,10 +69,6 @@ app.get("/sync-all-users", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-app.use("/api/battle", battleRoutes);
-app.use("/api/user",userRoutes);
-
 
 export default app;
 

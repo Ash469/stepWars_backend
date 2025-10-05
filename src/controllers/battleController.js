@@ -5,9 +5,9 @@ import UserModel from "../models/user.js";
 import { generateUniqueReward } from "../utils/rewardService.js";
 
 const MULTIPLIER_COSTS = {
-  '1_5x': 15,
-  '2x': 20,
-  '3x': 30
+    '1_5x': 15,
+    '2x': 20,
+    '3x': 30
 };
 
 export const createBotBattle = async (req, res) => {
@@ -18,7 +18,7 @@ export const createBotBattle = async (req, res) => {
 
     try {
         const rtdb = admin.database();
-        const newGameRef = rtdb.ref("games").push(); 
+        const newGameRef = rtdb.ref("games").push();
         const gameId = newGameRef.key;
 
         if (!gameId) {
@@ -39,7 +39,7 @@ export const createBotBattle = async (req, res) => {
             _id: gameId,
             player1Id: userId,
             player2Id: selectedBot.id,
-            gameType: 'BOT', 
+            gameType: 'BOT',
             status: 'ONGOING',
         });
         await newBattle.save();
@@ -137,7 +137,7 @@ export const joinFriendBattle = async (req, res) => {
             multiplier2: 1.0,
         };
         await rtdbGameRef.update(rtdbUpdateData);
-        
+
         res.status(200).json({ message: "Successfully joined battle.", gameId: gameId });
 
     } catch (error) {
@@ -155,104 +155,128 @@ export const endBattle = async (req, res) => {
     try {
         const rtdb = admin.database();
         const rtdbRef = rtdb.ref(`games/${gameId}`);
-        const snapshot = await rtdbRef.once("value");
+        const [snapshot, battleDetails] = await Promise.all([
+            rtdbRef.once("value"),
+            BattleModel.findById(gameId)
+        ]);
 
-        if (!snapshot.exists()) {
-            return res.status(404).json({ error: "Battle not found in Realtime Database." });
+        if (!snapshot.exists() || !battleDetails) {
+            return res.status(404).json({ error: "Battle not found." });
         }
-        
+
         const battleData = snapshot.val();
         const { player1Id, player2Id, player1Score = 0, player2Score = 0 } = battleData;
+        const gameType = battleDetails.gameType; // 'BOT' or 'FRIEND'
 
         if (!player1Id || !player2Id) {
             return res.status(500).json({ error: "Corrupted battle data: missing player IDs." });
         }
-
         let winnerId = null;
         let loserId = null;
         let result = "DRAW";
         let isKnockout = false;
+        let winnerCoins = 0;
+        let loserCoins = 0;
 
-        const scoreDifference = Math.abs(player1Score - player2Score);
+        if (gameType === 'FRIEND') {
+            console.log(`[endBattle] Applying FRIEND logic for game ${gameId}`);
+            const pot = player1Score + player2Score;
+            const scoreDifference = Math.abs(player1Score - player2Score);
 
-        if (scoreDifference >= 100) {
-            // It's a Knockout win
-            isKnockout = true;
-            result = "KO";
-            if (player1Score > player2Score) {
-                winnerId = player1Id;
-                loserId = player2Id;
+            if (scoreDifference >= 5000) {
+                result = "KO";
+                isKnockout = true;
+                winnerCoins = pot; // Winner takes all
+            } else if (scoreDifference > 100) {
+                result = "WIN";
+                winnerCoins = pot; // Winner takes all
             } else {
-                winnerId = player2Id;
-                loserId = player1Id;
+                result = "DRAW";
+                winnerCoins = Math.floor(pot / 2); // Split the pot
+                loserCoins = Math.ceil(pot / 2);
             }
-        } else if (scoreDifference > 20) {
-            // It's a standard Win by points
-            result = "WIN";
-            if (player1Score > player2Score) {
-                winnerId = player1Id;
-                loserId = player2Id;
-            } else {
-                winnerId = player2Id;
-                loserId = player1Id;
+
+            if (result !== "DRAW") {
+                winnerId = (player1Score > player2Score) ? player1Id : player2Id;
+                loserId = (player1Score > player2Score) ? player2Id : player1Id;
             }
+
         } else {
-            // It's a Draw
-            result = "DRAW";
+            console.log(`[endBattle] Applying BOT logic for game ${gameId}`);
+            const scoreDifference = Math.abs(player1Score - player2Score);
+
+            if (scoreDifference >= 100) {
+                result = "KO";
+                isKnockout = true;
+            } else if (scoreDifference > 20) {
+                result = "WIN";
+            } else {
+                result = "DRAW";
+            }
+
+            if (result === "DRAW") {
+                winnerCoins = 25;
+                loserCoins = 25;
+            } else {
+                winnerId = (player1Score > player2Score) ? player1Id : player2Id;
+                loserId = (player1Score > player2Score) ? player2Id : player1Id;
+                winnerCoins = 150;
+                loserCoins = 10;
+            }
         }
 
-        console.log(`[endBattle] Game ${gameId} Result: ${result}, Winner: ${winnerId}, KO: ${isKnockout}`);
+        console.log(`[endBattle] Result: ${result}, Winner: ${winnerId}`);
 
-        // --- Generate Reward for the Winner ---
         let rewardResult = {};
         if (winnerId) {
             rewardResult = await generateUniqueReward(winnerId);
         }
 
-        // --- Prepare Database Updates for Both Players ---
         const updatePromises = [];
-        const winnerCoins = (result === "DRAW") ? 25 : 150;
-        const loserCoins = (result === "DRAW") ? 25 : 10;
-
-        // Prepare winner's update operation
-        if (winnerId) {
-            const winnerUpdate = {
+        if (result === "DRAW") {
+            const p1Update = UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } });
+            const p2Update = UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } });
+            updatePromises.push(p1Update, p2Update);
+            // updateDailyActivity(player1Id, { $inc: { totalBattles: 1, coinsEarned: winnerCoins } });
+            // updateDailyActivity(player2Id, { $inc: { totalBattles: 1, coinsEarned: loserCoins } });
+        } else {
+            const winnerUpdate = UserModel.findOneAndUpdate({ uid: winnerId }, {
                 $inc: {
                     coins: winnerCoins,
                     'stats.totalBattles': 1,
                     'stats.battlesWon': 1,
                     'stats.knockouts': isKnockout ? 1 : 0,
                 }
-            };
-            updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdate));
-        }
-
-        // Prepare loser's update operation
-        if (loserId) {
-            const loserUpdate = {
+            });
+            const loserUpdate = UserModel.findOneAndUpdate({ uid: loserId }, {
                 $inc: {
                     coins: loserCoins,
-                    'stats.totalBattles': 1,
+                    'stats.totalBattles': 1
                 }
-            };
-            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, loserUpdate));
+            });
+            updatePromises.push(winnerUpdate, loserUpdate);
+            // // ✨ Log daily activity for winner and loser
+            // updateDailyActivity(winnerId, {
+            //     $inc: {
+            //         totalBattles: 1,
+            //         battlesWon: 1,
+            //         knockouts: isKnockout ? 1 : 0,
+            //         coinsEarned: winnerCoins
+            //     }
+            // });
+            // updateDailyActivity(loserId, {
+            //     $inc: {
+            //         totalBattles: 1,
+            //         coinsEarned: loserCoins
+            //     }
+            // });
         }
-        
-        // Handle stat updates for a DRAW
-        if (result === "DRAW") {
-             const player1DrawUpdate = UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } });
-             const player2DrawUpdate = UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } });
-             updatePromises.push(player1DrawUpdate, player2DrawUpdate);
-        }
-
-        // Execute all user updates concurrently
         await Promise.all(updatePromises);
-        
-        // --- Save Final Battle State to MongoDB ---
+
         const finalBattleState = {
             status: "COMPLETED",
-            winnerId: winnerId,
-            result: result,
+            winnerId,
+            result,
             player1FinalScore: player1Score,
             player2FinalScore: player2Score,
             rewards: {
@@ -260,18 +284,15 @@ export const endBattle = async (req, res) => {
                 item: rewardResult.granted === 'item' ? rewardResult.item._id : null
             },
         };
-
         await BattleModel.findByIdAndUpdate(gameId, finalBattleState, { new: true, upsert: true });
 
-        // // --- Clean up Realtime Database ---
-        // await rtdbRef.remove();
+        await rtdbRef.remove();
 
-        // --- Send Final Response to Flutter ---
         res.status(200).json({
             message: "Battle ended successfully.",
             finalState: {
-                winnerId: winnerId,
-                result: result,
+                winnerId,
+                result,
                 rewards: {
                     coins: finalBattleState.rewards.coins,
                     item: rewardResult.granted === 'item' ? rewardResult.item : null,
@@ -282,7 +303,7 @@ export const endBattle = async (req, res) => {
 
     } catch (error) {
         console.error("Error in endBattle controller:", error);
-        res.status(500).json({ error: "An unexpected error occurred while ending the battle." });
+        res.status(500).json({ error: "An unexpected error occurred." });
     }
 };
 
@@ -330,7 +351,7 @@ export const useMultiplier = async (req, res) => {
         if (!gameData) {
             return res.status(404).json({ error: "Game not found in Realtime Database." });
         }
-        
+
         const multiplierValue = parseFloat(multiplierType.replace('x', ''));
 
         if (gameData.player1Id === userId) {
