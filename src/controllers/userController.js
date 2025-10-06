@@ -9,7 +9,6 @@ import { runDailyReset } from '../utils/dailyReset.js';
 export const getUserProfile = async (req, res) => {
     try {
         const { uid } = req.params; 
-        const { lastActivityDate } = req.query;
         if (!uid) {
             return res.status(400).json({ error: 'User UID is required.' });
         }
@@ -17,11 +16,42 @@ export const getUserProfile = async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
+        console.log(`user found successfully ${user} `);
         const updatedUser = await handleDailyReset(user);
+        console.log(`User after Daily Reset ${updatedUser}`);
         res.status(200).json(updatedUser || user);
 
     } catch (error) {
         console.error("Error fetching user profile:", error);
+        res.status(500).json({ error: 'An unexpected server error occurred.' });
+    }
+};
+
+export const updateUserProfile = async (req, res) => {
+    try {
+        const { uid } = req.params;
+        // We exclude fields that shouldn't be updated directly via this route
+        const { email, stats, rewards, multipliers, coins, ...updateData } = req.body;
+
+        if (!uid) {
+            return res.status(400).json({ error: 'User UID is required.' });
+        }
+
+        const updatedUser = await UserModel.findOneAndUpdate(
+            { uid: uid },
+            { $set: updateData },
+            { new: true } // This option returns the updated document
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        console.log(`[updateUserProfile] Successfully updated profile for user ${uid}`);
+        res.status(200).json(updatedUser);
+
+    } catch (error) {
+        console.error("Error updating user profile:", error);
         res.status(500).json({ error: 'An unexpected server error occurred.' });
     }
 };

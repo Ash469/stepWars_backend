@@ -1,37 +1,41 @@
-// utils/resetService.js
 
 import UserModel from '../models/user.js';
 import DailyActivityModel from '../models/dailyActivity.js';
 
-/**
- * Checks if a daily reset is needed and performs it.
- * This is now the single source of truth for the reset logic.
- * @param {Document} user - The full Mongoose user document.
- * @returns {Promise<Document|null>} The updated user document if a reset occurred, otherwise null.
- */
 export const handleDailyReset = async (user) => {
-    // Helper function to get the start of a day in UTC
+    const getDateStringInIndia = (date) => {
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(date);
+    };
+
     const getStartOfDayUTC = (date) => {
         const d = new Date(date);
         d.setUTCHours(0, 0, 0, 0);
         return d;
     };
 
-    const today = getStartOfDayUTC(new Date());
-    const lastActiveDate = getStartOfDayUTC(user.lastActive || new Date());
+    const todayIndiaString = getDateStringInIndia(new Date());
+    const lastActiveIndiaString = getDateStringInIndia(user.lastActive || new Date());
 
-    // If the last active date is today, no reset is needed. Exit immediately.
-    if (lastActiveDate.getTime() === today.getTime()) {
+    // --- THIS IS THE FIX ---
+    // The old line was using variables 'lastActiveDate' and 'today' which are not defined.
+    // The new line correctly compares the date strings we just created.
+    if (lastActiveIndiaString === todayIndiaString) {
         return null;
     }
 
-    console.log(`[Daily Reset] Triggered for user ${user.uid}. Archiving stats for ${lastActiveDate.toISOString().split('T')[0]}`);
+    const archiveDate = getStartOfDayUTC(user.lastActive);
+    console.log(`[Daily Reset - IST] Triggered for user ${user.uid}. Archiving stats for ${lastActiveIndiaString}`);
 
     try {
-        // 1. Archive the previous day's stats
+        // Archive the previous day's stats
         await DailyActivityModel.findOneAndUpdate({
             uid: user.uid,
-            date: lastActiveDate
+            date: archiveDate
         }, {
             $set: {
                 stepCount: user.todaysStepCount,
@@ -44,7 +48,7 @@ export const handleDailyReset = async (user) => {
             setDefaultsOnInsert: true
         });
 
-        // 2. Reset the user's daily stats AND update the lastActive timestamp
+        // Reset the user's daily stats AND update the lastActive timestamp
         const updatedUser = await UserModel.findOneAndUpdate({
             uid: user.uid
         }, {
@@ -53,17 +57,17 @@ export const handleDailyReset = async (user) => {
                 'stats.battlesWon': 0,
                 'stats.knockouts': 0,
                 'stats.totalBattles': 0,
-                lastActive: new Date() // <-- THE CRITICAL "STAMP"
+                lastActive: new Date()
             }
         }, {
-            new: true // Return the updated document
+            new: true
         });
 
-        console.log(`[Daily Reset] Successfully archived and reset stats for user ${user.uid}.`);
+        console.log(`[Daily Reset - IST] Successfully archived and reset stats for user ${user.uid}.`);
         return updatedUser;
 
     } catch (error) {
-        console.error(`[Daily Reset] An error occurred for user ${user.uid}:`, error);
+        console.error(`[Daily Reset - IST] An error occurred for user ${user.uid}:`, error);
         return null;
     }
 };

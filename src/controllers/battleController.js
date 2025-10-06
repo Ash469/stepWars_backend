@@ -275,6 +275,29 @@ export const endBattle = async (req, res) => {
     }
 };
 
+export const cancelFriendBattle = async (req, res) => {
+    const { gameId } = req.body;
+    if (!gameId) {
+        return res.status(400).json({ error: "Game ID is required." });
+    }
+
+    try {
+        // Delete from Firebase Realtime Database
+        const rtdbRef = admin.database().ref(`games/${gameId}`);
+        await rtdbRef.remove();
+
+        // Delete from MongoDB
+        await BattleModel.findByIdAndDelete(gameId);
+
+        console.log(`[cancelFriendBattle] Successfully cancelled and deleted game ${gameId}.`);
+        res.status(200).json({ message: "Battle cancelled successfully." });
+
+    } catch (error) {
+        console.error("Error cancelling friend battle:", error);
+        res.status(500).json({ error: "Could not cancel friend battle." });
+    }
+};
+
 export const useMultiplier = async (req, res) => {
     const { gameId, userId, multiplierType } = req.body;
 
