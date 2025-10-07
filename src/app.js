@@ -6,6 +6,9 @@ import {db,admin} from "./config/firebase.js";
 import UserModel from "./models/user.js";
 import battleRoutes from "./routes/battle.js";
 import userRoutes from "./routes/user.js";
+import cron from 'node-cron';
+import notificationRoutes from './routes/notification.js';
+import resetRoute from './routes/reset.js';
 
 const app = express();
 app.use(cors());
@@ -16,6 +19,8 @@ app.get("/", (req, res) => res.send("StepWars Backend Alive 🚀"));
 app.use("/auth", authRoutes);
 app.use("/api/battle", battleRoutes);
 app.use("/api/user",userRoutes);
+app.use('/api/notifications', notificationRoutes); 
+app.use('/api/daily-reset',resetRoute);
 
 app.get("/sync-all-users", async (req, res) => {
   try {
@@ -69,6 +74,16 @@ app.get("/sync-all-users", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+cron.schedule('0 0 * * *', () => {
+  console.log('Triggering scheduled daily reset for IST midnight...');
+  runDailyReset();
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
+
+console.log("✔ Daily reset job scheduled for midnight IST.");
 
 export default app;
 

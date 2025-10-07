@@ -3,7 +3,6 @@ import { db } from "../config/firebase.js";
 import {updateDailyActivity} from "../utils/activityService.js"
 import { handleDailyReset } from '../utils/resetService.js'; 
 import DailyActivityModel from '../models/dailyActivity.js';
-import { runDailyReset } from '../utils/dailyReset.js';
 
 
 export const getUserProfile = async (req, res) => {
@@ -110,17 +109,6 @@ export const getUserRewards = async (req, res) => {
     }
 };
 
-export const triggerDailyReset = async (req, res) => {
-  try {
-    console.log('--- [MANUAL TRIGGER] Starting Daily Reset ---');
-    await runDailyReset();
-    console.log('--- [MANUAL TRIGGER] Daily Reset Finished ---');
-    res.status(200).json({ success: true, message: "Manual daily reset completed successfully." });
-  } catch (error) {
-    console.error('[MANUAL TRIGGER] An error occurred:', error);
-    res.status(500).json({ success: false, message: "Manual reset failed." });
-  }
-};
 
 export const getActivityHistory = async (req, res) => {
   const { uid } = req.params;

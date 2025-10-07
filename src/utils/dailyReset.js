@@ -1,40 +1,33 @@
-import UserModel  from '../models/user.js';
+import UserModel from '../models/user.js';
 import DailyActivityModel from '../models/dailyActivity.js';
 
-/**
- * A utility function to get the start of the current day in UTC.
- * @returns {Date} The date object set to the beginning of today (00:00:00 UTC).
- */
-const getStartOfTodayUTC = () => {
+const getStartOfYesterdayUTC = () => {
   const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const yesterday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  return yesterday;
 };
 
-/**
- * Archives and resets daily stats.
- * If a uid is provided, it runs for a single user.
- * If no uid is provided, it runs for all active users.
- * @param {string} [uid] - Optional. The UID of a specific user to reset.
- */
-export const runDailyReset = async (uid) => {
-  console.log(`--- [Daily Reset] Starting for ${uid ? `user ${uid}` : 'all active users'} ---`);
-  const today = getStartOfTodayUTC();
-  
-  try {
-    // If a specific user is targeted, create a query filter for them.
-    // Otherwise, find all users who have played at least one battle.
-    const filter = uid ? { uid: uid } : { 'stats.totalBattles': { $gt: 0 } };
+export const runDailyReset = async () => {
+  console.log('--- [CRON JOB] Starting Daily Reset for all users ---');
+  const yesterday = getStartOfYesterdayUTC();
 
-    const activeUsers = await UserModel.find(filter);
-    if (activeUsers.length === 0) {
-      console.log('[Daily Reset] No users found to process.');
+  try {
+    const usersToReset = await UserModel.find({
+      $or: [
+        { todaysStepCount: { $gt: 0 } },
+        { 'stats.totalBattles': { $gt: 0 } }
+      ]
+    });
+
+    if (usersToReset.length === 0) {
+      console.log('[CRON JOB] No users needed a reset.');
       return;
     }
+    const activityPromises = usersToReset.map(user => {
+      if (user.todaysStepCount === 0 && user.stats.totalBattles === 0) return null;
 
-    // Archive the final stats for each found user.
-    const activityPromises = activeUsers.map(user => {
       return DailyActivityModel.updateOne(
-        { uid: user.uid, date: today },
+        { uid: user.uid, date: yesterday },
         {
           $set: {
             stepCount: user.todaysStepCount,
@@ -43,16 +36,17 @@ export const runDailyReset = async (uid) => {
             totalBattles: user.stats.totalBattles,
           }
         },
-        { upsert: true } // Creates the document if it doesn't exist for that day
+        { upsert: true }
       );
-    });
-    
-    await Promise.all(activityPromises);
-    console.log(`[Daily Reset] Successfully archived activity for ${activeUsers.length} users.`);
+    }).filter(p => p !== null);
 
-    // Now, reset the daily stats only for the user(s) we just processed.
+    if (activityPromises.length > 0) {
+      await Promise.all(activityPromises);
+      console.log(`[CRON JOB] Successfully archived activity for ${activityPromises.length} users.`);
+    }
+    const userIdsToReset = usersToReset.map(u => u.uid);
     const resetResult = await UserModel.updateMany(
-      filter,
+      { uid: { $in: userIdsToReset } },
       {
         $set: {
           todaysStepCount: 0,
@@ -63,12 +57,10 @@ export const runDailyReset = async (uid) => {
       }
     );
 
-    console.log(`[Daily Reset] Successfully reset stats for ${resetResult.modifiedCount} users.`);
-    console.log('--- [Daily Reset] Finished ---');
+    console.log(`[CRON JOB] Successfully reset stats for ${resetResult.modifiedCount} users.`);
+    console.log('--- [CRON JOB] Finished ---');
 
   } catch (error) {
-    console.error('[Daily Reset] An error occurred during the reset process:', error);
-    // Throw the error so the manual trigger can catch it and send a failure response
-    throw error;
+    console.error('[CRON JOB] An error occurred during the reset process:', error);
   }
 };

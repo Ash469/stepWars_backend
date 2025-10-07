@@ -3,6 +3,7 @@ import BattleModel from "../models/battle.js";
 import BotService from "../utils/botService.js";
 import UserModel from "../models/user.js";
 import RewardModel from "../models/reward.js";
+import { sendNotificationToUser } from '../utils/notificationService.js';
 import { decidePotentialReward } from "../utils/rewardService.js";
 
 const MULTIPLIER_COSTS = {
@@ -35,7 +36,7 @@ export const createBotBattle = async (req, res) => {
             status: 'ONGOING',
             potentialReward: potentialReward ? potentialReward._id : null,
         });
-        const savedBattle = await newBattle.save(); 
+        const savedBattle = await newBattle.save();
         // console.log('[createBotBattle] Document saved to MongoDB:', savedBattle);
 
         const rtdbGameData = {
@@ -155,14 +156,15 @@ export const endBattle = async (req, res) => {
         }
 
         const battleData = snapshot.val();
-        console.log(`battelData: ${battleData}`);
         const { player1Id, player2Id } = battleData;
-
         const gameType = battleDetails.gameType;
-        const p1Score = player1FinalScore ?? battleData.p1Score ?? 0;
-        const p2Score = player2FinalScore ?? battleData.p2Score ?? 0;
-        if (!player1Id || !player2Id) {
 
+        // --- THIS IS THE CORRECTED PART ---
+        const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
+        const p2Score = player2FinalScore ?? battleData.player2Score ?? 0;
+        // --- END CORRECTION ---
+
+        if (!player1Id || !player2Id) {
             return res.status(500).json({ error: "Corrupted battle data." });
         }
 
@@ -188,18 +190,9 @@ export const endBattle = async (req, res) => {
 
         console.log(`[endBattle] Game ${gameId} Result: ${result}, Winner: ${winnerId}, KO: ${isKnockout}`);
 
-        let finalRewardItem = null;
-        // if (winnerId && !winnerId.startsWith('bot_') && battleDetails.potentialReward) {
-        //     const rewardToGrant = await RewardModel.findById(battleDetails.potentialReward);
-        //     if (rewardToGrant) {
-        //         const rewardCategory = rewardToGrant.type;
-        //         await UserModel.updateOne({ uid: winnerId }, { $push: { [`rewards.${rewardCategory}`]: rewardToGrant._id } });
-        //         finalRewardItem = rewardToGrant;
-        //         console.log(`[endBattle] Granted pre-selected reward '${rewardToGrant.name}' to ${winnerId}.`);
-        //     }
-        // }
-
         const updatePromises = [];
+        let finalRewardItem = null;
+
         if (result !== 'DRAW' && winnerId && !winnerId.startsWith('bot_')) {
             const winnerUpdatePayload = {
                 $inc: {
@@ -210,20 +203,17 @@ export const endBattle = async (req, res) => {
                 }
             };
 
-            // Check for and process the potential reward inside the winner's block
             if (battleDetails.potentialReward) {
                 console.log(`[endBattle] Found potential reward ID: ${battleDetails.potentialReward}`);
                 finalRewardItem = await RewardModel.findById(battleDetails.potentialReward);
-
                 if (finalRewardItem) {
                     console.log(`[endBattle] Successfully fetched reward '${finalRewardItem.name}'. Adding to user update.`);
                     const rewardCategory = finalRewardItem.type;
                     winnerUpdatePayload.$push = { [`rewards.${rewardCategory}`]: finalRewardItem._id };
                 } else {
-                    console.log(`[endBattle] WARNING: Could not find reward with ID ${battleDetails.potentialReward} in the database.`);
+                    console.log(`[endBattle] WARNING: Could not find reward with ID ${battleDetails.potentialReward}.`);
                 }
             }
-
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
         }
 
@@ -235,25 +225,39 @@ export const endBattle = async (req, res) => {
             if (!player1Id.startsWith('bot_')) updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
             if (!player2Id.startsWith('bot_')) updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
         }
+
         if (updatePromises.length > 0) {
-            const updateResults = await Promise.all(updatePromises);
-            // console.log("Database update results:", updateResults);
+            await Promise.all(updatePromises);
         }
-
-        const finalBattleState = {
-            status: "COMPLETED",
-            winnerId,
-            result,
-            player1FinalScore: p1Score,
-            player2FinalScore: p2Score,
-        };
-
 
         await BattleModel.findByIdAndUpdate(gameId, {
             status: "COMPLETED", winnerId, result, player1FinalScore: p1Score, player2FinalScore: p2Score,
             "rewards.coins": winnerCoins,
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
+
+        // --- ADD NOTIFICATION LOGIC ---
+        if (result === 'DRAW') {
+            const title = "It's a Draw!";
+            const body = "The battle ended in a draw. You both fought well!";
+            const imageUrl = 'http://10.237.220.52:5000/public/images/draw-icon.png';
+            sendNotificationToUser(player1Id, title, body, imageUrl);
+            sendNotificationToUser(player2Id, title, body, imageUrl);
+        } else {
+            if (winnerId) {
+                const title = 'Congratulations, You Won!';
+                const body = `You were victorious and earned ${winnerCoins} coins!`;
+                const imageUrl = 'http://10.237.220.52:5000/public/images/win-icon.png';
+                sendNotificationToUser(winnerId, title, body, imageUrl);
+            }
+            if (loserId) {
+                const title = 'Battle Over';
+                const body = `You earned ${loserCoins} coins. Better luck next time!`;
+                const imageUrl = 'http://10.237.220.52:5000/public/images/lose-icon.png';
+                sendNotificationToUser(loserId, title, body, imageUrl);
+            }
+        }
+        // --- END NOTIFICATION LOGIC ---
 
         await rtdbRef.remove();
 
@@ -321,7 +325,6 @@ export const useMultiplier = async (req, res) => {
         if (hasMultiplier) {
             console.log(`User ${userId} is using an existing '${multiplierType}' multiplier.`);
             updateOperation = { $inc: { [`multipliers.${multiplierType}`]: -1 } };
-
         } else {
             const cost = MULTIPLIER_COSTS[multiplierType];
             console.log(`User ${userId} is buying a '${multiplierType}' multiplier for ${cost} coins.`);
@@ -342,11 +345,21 @@ export const useMultiplier = async (req, res) => {
         if (!gameData) {
             return res.status(404).json({ error: "Game not found in Realtime Database." });
         }
+
         const isPlayer1 = gameData.player1Id === userId;
         if ((isPlayer1 && gameData.player1MultiplierUsed) || (!isPlayer1 && gameData.player2MultiplierUsed)) {
             return res.status(403).json({ error: "You have already used a multiplier in this battle." });
         }
-        await UserModel.updateOne({ uid: userId }, updateOperation);
+
+        // ---  ADD NOTIFICATION LOGIC ---
+        const opponentId = isPlayer1 ? gameData.player2Id : gameData.player1Id;
+        if (opponentId) {
+            const title = 'Multiplier Activated!';
+            const body = `${user.username} has just activated a ${multiplierType.replace('_', '.')} multiplier!`;
+            const imageUrl = 'https://your-server.com/images/multiplier-icon.png';
+            sendNotificationToUser(opponentId, title, body, imageUrl);
+        }
+        // --- END NOTIFICATION LOGIC ---
 
         const multiplierValue = parseFloat(multiplierType.replace('_', '.').replace('x', ''));
 
