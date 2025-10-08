@@ -9,10 +9,18 @@ import userRoutes from "./routes/user.js";
 import cron from 'node-cron';
 import notificationRoutes from './routes/notification.js';
 import resetRoute from './routes/reset.js';
+import mysteryBoxRoutes from './routes/mysteryBox.js';
+import path from 'path';
+import { fileURLToPath } from 'url'; 
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.get("/", (req, res) => res.send("StepWars Backend Alive 🚀"));
@@ -21,6 +29,7 @@ app.use("/api/battle", battleRoutes);
 app.use("/api/user",userRoutes);
 app.use('/api/notifications', notificationRoutes); 
 app.use('/api/daily-reset',resetRoute);
+app.use('/api/mystery-box', mysteryBoxRoutes);
 
 app.get("/sync-all-users", async (req, res) => {
   try {

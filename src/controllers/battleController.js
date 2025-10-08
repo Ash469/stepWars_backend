@@ -12,6 +12,56 @@ const MULTIPLIER_COSTS = {
     '3x': 30
 };
 
+// --- NEW FUNCTION ---
+export const createPvpBattle = async (req, res) => {
+    const { player1Id, player2Id } = req.body;
+    if (!player1Id || !player2Id) {
+        return res.status(400).json({ error: "Both player IDs are required." });
+    }
+
+    try {
+        const rtdb = admin.database();
+        const newGameRef = rtdb.ref("games").push();
+        const gameId = newGameRef.key;
+
+        // Decide on a potential reward for this battle
+        const potentialReward = await decidePotentialReward(player1Id); // Base reward on player 1
+
+        const newBattle = new BattleModel({
+            _id: gameId,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            gameType: 'PVP', // Using a new game type
+            status: 'ONGOING',
+            potentialReward: potentialReward ? potentialReward._id : null,
+        });
+        await newBattle.save();
+
+        const rtdbGameData = {
+            gameId: gameId,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            gameStatus: 'ongoing',
+            startTime: admin.database.ServerValue.TIMESTAMP,
+            potentialReward: potentialReward ? { name: potentialReward.name, tier: potentialReward.tier } : null,
+            step1Count: 0,
+            step2Count: 0,
+            p1Score: 0,
+            p2Score: 0,
+            multiplier1: 1.0,
+            multiplier2: 1.0,
+        };
+        await newGameRef.set(rtdbGameData);
+
+        res.status(201).json({ gameId: gameId });
+
+    } catch (error) {
+        console.error("Error creating PvP battle:", error);
+        res.status(500).json({ error: "Could not create PvP battle." });
+    }
+};
+
+
 export const createBotBattle = async (req, res) => {
     const { userId, botId } = req.body;
     if (!userId) {
@@ -159,10 +209,8 @@ export const endBattle = async (req, res) => {
         const { player1Id, player2Id } = battleData;
         const gameType = battleDetails.gameType;
 
-        // --- THIS IS THE CORRECTED PART ---
         const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
         const p2Score = player2FinalScore ?? battleData.player2Score ?? 0;
-        // --- END CORRECTION ---
 
         if (!player1Id || !player2Id) {
             return res.status(500).json({ error: "Corrupted battle data." });
@@ -236,28 +284,25 @@ export const endBattle = async (req, res) => {
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
 
-        // --- ADD NOTIFICATION LOGIC ---
         if (result === 'DRAW') {
             const title = "It's a Draw!";
             const body = "The battle ended in a draw. You both fought well!";
-            const imageUrl = 'http://10.237.220.52:5000/public/images/draw-icon.png';
+            const imageUrl = 'http://172.30.229.52:5000/public/draw-icon.png';
             sendNotificationToUser(player1Id, title, body, imageUrl);
             sendNotificationToUser(player2Id, title, body, imageUrl);
         } else {
-            if (winnerId) {
-                const title = 'Congratulations, You Won!';
-                const body = `You were victorious and earned ${winnerCoins} coins!`;
-                const imageUrl = 'http://10.237.220.52:5000/public/images/win-icon.png';
-                sendNotificationToUser(winnerId, title, body, imageUrl);
+           if (winnerId) {
+                const title = isKnockout ? 'K.O. VICTORY!' : 'Congratulations, You Won!';
+                const imageUrl = isKnockout ? 'http://172.30.229.52:5000/public/ko-icon.png' : 'http://172.30.229.52:5000/public/win-icon.png';
+                sendNotificationToUser(winnerId, title, `You were victorious and earned ${winnerCoins} coins!`, imageUrl);
             }
             if (loserId) {
                 const title = 'Battle Over';
                 const body = `You earned ${loserCoins} coins. Better luck next time!`;
-                const imageUrl = 'http://10.237.220.52:5000/public/images/lose-icon.png';
+                const imageUrl = 'http://172.30.229.52:5000/public/lose-icon.png';
                 sendNotificationToUser(loserId, title, body, imageUrl);
             }
         }
-        // --- END NOTIFICATION LOGIC ---
 
         await rtdbRef.remove();
 
@@ -305,12 +350,8 @@ export const cancelFriendBattle = async (req, res) => {
 export const useMultiplier = async (req, res) => {
     const { gameId, userId, multiplierType } = req.body;
 
-    if (!gameId || !userId || !multiplierType) {
+    if (!gameId || !userId || !multiplierType|| !MULTIPLIER_COSTS[multiplierType]) {
         return res.status(400).json({ error: "gameId, userId, and multiplierType are required." });
-    }
-
-    if (!MULTIPLIER_COSTS[multiplierType]) {
-        return res.status(400).json({ error: "Invalid multiplier type." });
     }
 
     try {
@@ -351,15 +392,24 @@ export const useMultiplier = async (req, res) => {
             return res.status(403).json({ error: "You have already used a multiplier in this battle." });
         }
 
-        // ---  ADD NOTIFICATION LOGIC ---
         const opponentId = isPlayer1 ? gameData.player2Id : gameData.player1Id;
-        if (opponentId) {
+        if (opponentId && !opponentId.startsWith('bot_')) {
             const title = 'Multiplier Activated!';
-            const body = `${user.username} has just activated a ${multiplierType.replace('_', '.')} multiplier!`;
-            const imageUrl = 'https://your-server.com/images/multiplier-icon.png';
+            const body = `${user.username} has just activated a ${multiplierType.replace('_', '.')}x multiplier!`;
+           let imageUrl = '';
+            switch (multiplierType) {
+                case '1_5x':
+                    imageUrl = 'http://172.30.229.52:5000/public/multiplier-1.5x.png';
+                    break;
+                case '2x':
+                    imageUrl = 'http://172.30.229.52:5000/public/multiplier-2x.png';
+                    break;
+                case '3x':
+                    imageUrl = 'http://172.30.229.52:5000/public/multiplier-3x.png';
+                    break;
+            }
             sendNotificationToUser(opponentId, title, body, imageUrl);
         }
-        // --- END NOTIFICATION LOGIC ---
 
         const multiplierValue = parseFloat(multiplierType.replace('_', '.').replace('x', ''));
 

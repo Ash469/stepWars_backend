@@ -43,7 +43,13 @@ const userSchema = new mongoose.Schema({
     },
     default: () => ({ battlesWon: 0, knockouts: 0, totalBattles: 0 })
   },
-  lastActive: { type: Date, default: Date.now }
+  lastActive: { type: Date, default: Date.now },
+  mysteryBoxLastOpened: {
+    type: Map,
+    of: Date,
+    default: {}
+  }
+
 });
 
 const UserModel = mongoose.model("User", userSchema);
