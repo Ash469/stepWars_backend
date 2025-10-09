@@ -1,89 +1,75 @@
 import admin from 'firebase-admin';
 import FcmTokenModel from '../models/fcmToken.js';
 
-/**
- * Sends a push notification to a specific user.
- * @param {string} userId - The UID of the user to send the notification to.
- * @param {string} title - The title of the notification.
- * @param {string} body - The body text of the notification.
- * @param {string} [imageUrl] - Optional. A URL to an image for the notification.
- */
 export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
   if (!userId || userId.startsWith('bot_')) return;
 
   try {
     const fcmDoc = await FcmTokenModel.findById(userId);
+    if (!fcmDoc || fcmDoc.tokens.length === 0) return;
 
-    if (!fcmDoc || fcmDoc.tokens.length === 0) {
-      console.log(`[FCM] No tokens found for user ${userId}.`);
-      return;
-    }
-
-    // --- THIS IS THE FIX ---
-    // Instead of sendMulticast, we loop through each token and send individually.
-    // This is more compatible with older versions of the firebase-admin SDK.
-
-    const tokens = fcmDoc.tokens;
-    
-    // Create the message payload once.
     const messagePayload = {
-      notification: {
-        title: title,
-        body: body,
-      },
+      notification: { title, body },
       android: {
         notification: {
           icon: 'ic_notification',
-          ...(imageUrl && { imageUrl: imageUrl })
-        }
+          ...(imageUrl && { imageUrl }),
+        },
       },
     };
 
-    // Create an array of promises, one for each token.
+    const tokens = fcmDoc.tokens;
     const sendPromises = tokens.map(token => {
-      const message = {
-        ...messagePayload,
-        token: token, // Add the specific token for this message
-      };
-      return admin.messaging().send(message);
+      const message = { ...messagePayload, token };
+      return admin.messaging().send(message).catch(error => {
+        // --- THIS IS THE FIX ---
+        // If an error occurs for a specific token, check if it's an "unregistered" error.
+        // If so, return the invalid token so we can remove it later.
+        if (error.code === 'messaging/registration-token-not-registered') {
+          console.log(`[FCM] Stale token identified for removal: ${token}`);
+          return { error: true, tokenToRemove: token };
+        }
+        // For other errors, just log them.
+        console.error(`[FCM] Error sending to a token:`, error);
+        return null;
+      });
     });
-    
-    // Wait for all the notification sends to complete.
-    await Promise.all(sendPromises);
 
-    console.log(`[FCM] Sent '${title}' notification to user ${userId} (${tokens.length} devices).`);
+    const results = await Promise.all(sendPromises);
+
+    // --- NEW: Filter out the invalid tokens and remove them from the database ---
+    const tokensToRemove = results
+      .filter(result => result && result.error === true)
+      .map(result => result.tokenToRemove);
+
+    if (tokensToRemove.length > 0) {
+      console.log(`[FCM] Removing ${tokensToRemove.length} stale token(s) for user ${userId}.`);
+      await FcmTokenModel.updateOne(
+        { _id: userId },
+        { $pullAll: { tokens: tokensToRemove } }
+      );
+    }
     // --- END FIX ---
 
   } catch (error) {
-    // We also check for a specific error code that indicates an invalid token.
-    if (error.code === 'messaging/registration-token-not-registered') {
-      console.log('[FCM] Found an invalid token during send. It will be removed.');
-    } else {
-      console.error(`[FCM] Error sending notification to user ${userId}:`, error);
-    }
+    console.error(`[FCM] Broader error sending notification to user ${userId}:`, error);
   }
 };
 
-/**
- * Sends a push notification directly to a single FCM token.
- */
 export const sendNotificationToToken = async (token, title, body, imageUrl) => {
   if (!token) return;
-
   try {
     const message = {
       notification: { title, body },
       android: {
         notification: {
           icon: 'ic_notification',
-          ...(imageUrl && { imageUrl: imageUrl })
-        }
+          ...(imageUrl && { imageUrl }),
+        },
       },
       token: token,
     };
-
-    const response = await admin.messaging().send(message);
-    console.log(`[FCM] Sent test notification successfully:`, response);
+    await admin.messaging().send(message);
   } catch (error) {
     console.error(`[FCM] Error sending test notification:`, error);
   }
