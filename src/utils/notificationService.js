@@ -9,7 +9,7 @@ import FcmTokenModel from '../models/fcmToken.js';
  * @param {string} [imageUrl] - Optional. A URL to an image for the notification.
  */
 export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
-  if (!userId || userId.startsWith('bot_')) return; // Also ignore bots
+  if (!userId || userId.startsWith('bot_')) return;
 
   try {
     const fcmDoc = await FcmTokenModel.findById(userId);
@@ -19,28 +19,72 @@ export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
       return;
     }
 
-    // --- THIS IS THE NEW PART ---
-    const message = {
+    // --- THIS IS THE FIX ---
+    // Instead of sendMulticast, we loop through each token and send individually.
+    // This is more compatible with older versions of the firebase-admin SDK.
+
+    const tokens = fcmDoc.tokens;
+    
+    // Create the message payload once.
+    const messagePayload = {
       notification: {
         title: title,
         body: body,
       },
       android: {
         notification: {
-          // This is your small, monochrome icon for the status bar
-          icon: 'ic_notification', 
-          // If an imageUrl is provided, add it to the payload
-          ...(imageUrl && { imageUrl: imageUrl }) 
+          icon: 'ic_notification',
+          ...(imageUrl && { imageUrl: imageUrl })
         }
       },
-      tokens: fcmDoc.tokens,
     };
-    // --- END NEW PART ---
 
-    const response = await admin.messaging().sendMulticast(message);
-    console.log(`[FCM] Sent '${title}' notification to user ${userId}. Success count:`, response.successCount);
+    // Create an array of promises, one for each token.
+    const sendPromises = tokens.map(token => {
+      const message = {
+        ...messagePayload,
+        token: token, // Add the specific token for this message
+      };
+      return admin.messaging().send(message);
+    });
+    
+    // Wait for all the notification sends to complete.
+    await Promise.all(sendPromises);
+
+    console.log(`[FCM] Sent '${title}' notification to user ${userId} (${tokens.length} devices).`);
+    // --- END FIX ---
 
   } catch (error) {
-    console.error(`[FCM] Error sending notification to user ${userId}:`, error);
+    // We also check for a specific error code that indicates an invalid token.
+    if (error.code === 'messaging/registration-token-not-registered') {
+      console.log('[FCM] Found an invalid token during send. It will be removed.');
+    } else {
+      console.error(`[FCM] Error sending notification to user ${userId}:`, error);
+    }
+  }
+};
+
+/**
+ * Sends a push notification directly to a single FCM token.
+ */
+export const sendNotificationToToken = async (token, title, body, imageUrl) => {
+  if (!token) return;
+
+  try {
+    const message = {
+      notification: { title, body },
+      android: {
+        notification: {
+          icon: 'ic_notification',
+          ...(imageUrl && { imageUrl: imageUrl })
+        }
+      },
+      token: token,
+    };
+
+    const response = await admin.messaging().send(message);
+    console.log(`[FCM] Sent test notification successfully:`, response);
+  } catch (error) {
+    console.error(`[FCM] Error sending test notification:`, error);
   }
 };
