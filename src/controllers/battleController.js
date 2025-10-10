@@ -12,7 +12,7 @@ const MULTIPLIER_COSTS = {
     '3x': 30
 };
 
-// --- NEW FUNCTION ---
+
 export const createPvpBattle = async (req, res) => {
     const { player1Id, player2Id } = req.body;
     if (!player1Id || !player2Id) {
@@ -60,7 +60,6 @@ export const createPvpBattle = async (req, res) => {
         res.status(500).json({ error: "Could not create PvP battle." });
     }
 };
-
 
 export const createBotBattle = async (req, res) => {
     const { userId, botId } = req.body;
@@ -220,24 +219,43 @@ export const endBattle = async (req, res) => {
         let winnerCoins = 0, loserCoins = 0;
         const scoreDifference = Math.abs(p1Score - p2Score);
 
-        if (gameType === 'FRIEND') {
-            if (scoreDifference >= 100) { result = "KO"; isKnockout = true; }
-            else if (scoreDifference > 20) { result = "WIN"; }
-            const pot = p1Score + p2Score;
-            result === "DRAW" ? (winnerCoins = Math.floor(pot / 2), loserCoins = Math.ceil(pot / 2)) : (winnerCoins = pot);
-        } else { // BOT Battle Logic
-            if (scoreDifference >= 100) { result = "KO"; isKnockout = true; }
-            else if (scoreDifference > 20) { result = "WIN"; }
-            result === "DRAW" ? (winnerCoins = 25, loserCoins = 25) : (winnerCoins = 150, loserCoins = 10);
-        }
-
-        if (result !== "DRAW") {
+        // Determine battle result
+        if (scoreDifference >= 100) {
+            result = "KO";
+            isKnockout = true;
             winnerId = (p1Score > p2Score) ? player1Id : player2Id;
             loserId = (p1Score > p2Score) ? player2Id : player1Id;
+        } else if (scoreDifference > 20) {
+            result = "WIN";
+            winnerId = (p1Score > p2Score) ? player1Id : player2Id;
+            loserId = (p1Score > p2Score) ? player2Id : player1Id;
+        } else {
+            result = "DRAW";
         }
 
-        console.log(`[endBattle] Game ${gameId} Result: ${result}, Winner: ${winnerId}, KO: ${isKnockout}`);
+        // Calculate coins based on game type
+        if (gameType === 'FRIEND') {
+            const pot = p1Score + p2Score;
+            if (result === "DRAW") {
+                winnerCoins = Math.floor(pot / 2);
+                loserCoins = Math.ceil(pot / 2);
+            } else {
+                winnerCoins = pot;
+                loserCoins = 0;
+            }
+        } else { // BOT Battle Logic
+            if (result === "DRAW") {
+                winnerCoins = 25;
+                loserCoins = 25;
+            } else {
+                winnerCoins = 150;
+                loserCoins = 10;
+            }
+        }
 
+        console.log(`[endBattle] Game ${gameId} | Result: ${result} | Winner: ${winnerId} | KO: ${isKnockout} | Scores: P1=${p1Score}, P2=${p2Score}`);
+
+        // Update user stats and coins
         const updatePromises = [];
         let finalRewardItem = null;
 
@@ -266,54 +284,114 @@ export const endBattle = async (req, res) => {
         }
 
         if (result !== 'DRAW' && loserId && !loserId.startsWith('bot_')) {
-            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
+            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, { 
+                $inc: { 
+                    coins: loserCoins, 
+                    'stats.totalBattles': 1 
+                } 
+            }));
         }
 
         if (result === 'DRAW') {
-            if (!player1Id.startsWith('bot_')) updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
-            if (!player2Id.startsWith('bot_')) updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
+            if (!player1Id.startsWith('bot_')) {
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { 
+                    $inc: { 
+                        coins: winnerCoins, 
+                        'stats.totalBattles': 1 
+                    } 
+                }));
+            }
+            if (!player2Id.startsWith('bot_')) {
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { 
+                    $inc: { 
+                        coins: loserCoins, 
+                        'stats.totalBattles': 1 
+                    } 
+                }));
+            }
         }
 
         if (updatePromises.length > 0) {
             await Promise.all(updatePromises);
         }
 
+        // Update battle document
         await BattleModel.findByIdAndUpdate(gameId, {
-            status: "COMPLETED", winnerId, result, player1FinalScore: p1Score, player2FinalScore: p2Score,
+            status: "COMPLETED",
+            winnerId,
+            result,
+            player1FinalScore: p1Score,
+            player2FinalScore: p2Score,
             "rewards.coins": winnerCoins,
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
 
+        // Send notifications based on result
+        const baseImageUrl = 'https://stepwars-backend.onrender.com/public';
+
         if (result === 'DRAW') {
+            // DRAW: Both players get draw notification
             const title = "It's a Draw!";
-            const body = "The battle ended in a draw. You both fought well!";
-            const imageUrl = 'http://172.30.229.52:5000/public/draw-icon.png';
-            sendNotificationToUser(player1Id, title, body, imageUrl);
-            sendNotificationToUser(player2Id, title, body, imageUrl);
-        } else {
-           if (winnerId) {
-                const title = isKnockout ? 'K.O. VICTORY!' : 'Congratulations, You Won!';
-                const imageUrl = isKnockout ? 'http://172.30.229.52:5000/public/ko-icon.png' : 'http://172.30.229.52:5000/public/win-icon.png';
-                sendNotificationToUser(winnerId, title, `You were victorious and earned ${winnerCoins} coins!`, imageUrl);
+            const body = `The battle ended in a draw. You earned ${winnerCoins} coins!`;
+            const imageUrl = `${baseImageUrl}/draw-icon.png`;
+            
+            if (!player1Id.startsWith('bot_')) {
+                sendNotificationToUser(player1Id, title, body, imageUrl);
             }
-            if (loserId) {
-                const title = 'Battle Over';
-                const body = `You earned ${loserCoins} coins. Better luck next time!`;
-                const imageUrl = 'http://172.30.229.52:5000/public/lose-icon.png';
+            if (!player2Id.startsWith('bot_')) {
+                sendNotificationToUser(player2Id, title, body, imageUrl);
+            }
+        } else if (result === 'KO') {
+            // KO: Winner gets KO notification, Loser gets KO loss notification
+            if (winnerId && !winnerId.startsWith('bot_')) {
+                const title = '🔥 K.O. VICTORY! 🔥';
+                const body = finalRewardItem 
+                    ? `Knockout! You earned ${winnerCoins} coins and won a ${finalRewardItem.tier} ${finalRewardItem.name}!`
+                    : `Knockout! You dominated and earned ${winnerCoins} coins!`;
+                const imageUrl = `${baseImageUrl}/ko-icon.png`;
+                sendNotificationToUser(winnerId, title, body, imageUrl);
+            }
+            
+            if (loserId && !loserId.startsWith('bot_')) {
+                const title = 'K.O. Defeat';
+                const body = `You got knocked out! You earned ${loserCoins} coins. Train harder!`;
+                const imageUrl = `${baseImageUrl}/lose-icon.png`;
+                sendNotificationToUser(loserId, title, body, imageUrl);
+            }
+        } else if (result === 'WIN') {
+            // WIN: Winner gets win notification, Loser gets loss notification
+            if (winnerId && !winnerId.startsWith('bot_')) {
+                const title = '🎉 Victory! 🎉';
+                const body = finalRewardItem 
+                    ? `You won! Earned ${winnerCoins} coins and a ${finalRewardItem.tier} ${finalRewardItem.name}!`
+                    : `Congratulations! You won and earned ${winnerCoins} coins!`;
+                const imageUrl = `${baseImageUrl}/win-icon.png`;
+                sendNotificationToUser(winnerId, title, body, imageUrl);
+            }
+            
+            if (loserId && !loserId.startsWith('bot_')) {
+                const title = 'Battle Lost';
+                const body = `You lost this battle but earned ${loserCoins} coins. Keep fighting!`;
+                const imageUrl = `${baseImageUrl}/lose-icon.png`;
                 sendNotificationToUser(loserId, title, body, imageUrl);
             }
         }
 
+        // Clean up RTDB
         await rtdbRef.remove();
 
         res.status(200).json({
             finalState: {
                 winnerId,
+                loserId,
                 result,
+                isKnockout,
+                player1Score: p1Score,
+                player2Score: p2Score,
                 rewards: {
                     coins: winnerCoins,
                     item: finalRewardItem,
-                    message: finalRewardItem ? `You won a new ${finalRewardItem.tier} item!` : null
+                    message: finalRewardItem ? `You won a new ${finalRewardItem.tier} ${finalRewardItem.name}!` : null
                 }
             }
         });
