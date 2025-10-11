@@ -1,10 +1,9 @@
 import UserModel from '../models/user.js';
 import RewardModel from '../models/reward.js';
 
-// --- Configuration for all Mystery Boxes ---
 const BOX_CONFIG = {
     bronze: {
-        price: 1000,
+        price: 5000,
         rewards: {
             coins: { chance: 40, min: 1000, max: 4000 },
             multiplier: { chance: 30, types: [{ type: '1_5x', chance: 70 }, { type: '2x', chance: 25 }, { type: '3x', chance: 5 }] },
@@ -12,7 +11,7 @@ const BOX_CONFIG = {
         },
     },
     silver: {
-        price: 2000,
+        price: 10000,
         rewards: {
             coins: { chance: 35, min: 2000, max: 8000 },
             multiplier: { chance: 25, types: [{ type: '1_5x', chance: 50 }, { type: '2x', chance: 35 }, { type: '3x', chance: 15 }] },
@@ -20,7 +19,7 @@ const BOX_CONFIG = {
         },
     },
     gold: {
-        price: 3000,
+        price: 20000,
         rewards: {
             coins: { chance: 30, min: 5000, max: 15000 },
             multiplier: { chance: 20, types: [{ type: '1_5x', chance: 35 }, { type: '2x', chance: 40 }, { type: '3x', chance: 25 }] },
@@ -46,7 +45,6 @@ export const openMysteryBox = async (userId, boxType) => {
     if (!user) throw new Error('User not found.');
     if (user.coins < box.price) throw new Error('Not enough coins.');
 
-    // Initialize maps if they don't exist
     if (!user.mysteryBoxLastOpened) user.mysteryBoxLastOpened = new Map();
     if (!user.multipliers) user.multipliers = new Map();
     if (!user.rewards) user.rewards = new Map();
@@ -61,7 +59,6 @@ export const openMysteryBox = async (userId, boxType) => {
     }
 
     user.coins -= box.price;
-    // --- FIX 1: Use .set() for proper change tracking ---
     user.mysteryBoxLastOpened.set(boxType, new Date());
 
     const rewardCategories = Object.keys(box.rewards).map(key => ({ type: key, chance: box.rewards[key].chance }));
@@ -80,7 +77,6 @@ export const openMysteryBox = async (userId, boxType) => {
             const multiplierConfig = box.rewards.multiplier;
             const chosenMultiplier = selectWeightedRandom(multiplierConfig.types).type;
             const currentMultiplierCount = user.multipliers.get(chosenMultiplier) || 0;
-            // --- FIX 2: Use .set() for proper change tracking ---
             user.multipliers.set(chosenMultiplier, currentMultiplierCount + 1);
             finalReward = { type: 'multiplier', multiplierType: chosenMultiplier };
             break;
@@ -94,8 +90,6 @@ export const openMysteryBox = async (userId, boxType) => {
             if (unownedRewards.length > 0) {
                 const rewardItem = unownedRewards[Math.floor(Math.random() * unownedRewards.length)];
                 const rewardCategory = rewardItem.type;
-
-                // --- FIX 3: Use .set() for proper change tracking ---
                 const categoryArray = user.rewards.get(rewardCategory) || [];
                 categoryArray.push(rewardItem._id);
                 user.rewards.set(rewardCategory, categoryArray);
