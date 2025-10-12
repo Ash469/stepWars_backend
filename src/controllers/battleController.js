@@ -347,6 +347,7 @@ export const endBattle = async (req, res) => {
 
         res.status(200).json({
             finalState: {
+                gameType: gameType,
                 winnerId,
                 loserId,
                 result,
