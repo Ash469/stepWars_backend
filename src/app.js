@@ -20,6 +20,8 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+
+
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes

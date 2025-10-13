@@ -40,7 +40,14 @@ export const createPvpBattle = async (req, res) => {
             player2Id: player2Id,
             gameStatus: 'ongoing',
             startTime: admin.database.ServerValue.TIMESTAMP,
-            potentialReward: potentialReward ? { name: potentialReward.name, tier: potentialReward.tier } : null,
+            potentialReward: potentialReward 
+                ? { 
+                    name: potentialReward.name, 
+                    tier: potentialReward.tier, 
+                    imagePath: potentialReward.imagePath, 
+                    description: potentialReward.description 
+                  } 
+                : null,
             step1Count: 0,
             step2Count: 0,
             p1Score: 0,
@@ -84,7 +91,14 @@ export const createBotBattle = async (req, res) => {
             player2Id: selectedBot.id,
             gameStatus: 'ongoing',
             startTime: admin.database.ServerValue.TIMESTAMP,
-            potentialReward: potentialReward ? { name: potentialReward.name, tier: potentialReward.tier } : null,
+            potentialReward: potentialReward 
+                ? { 
+                    name: potentialReward.name, 
+                    tier: potentialReward.tier, 
+                    imagePath: potentialReward.imagePath, 
+                    description: potentialReward.description 
+                  } 
+                : null,
             p1Score: 0,
             p2Score: 0,
             multiplier1: 1.0,
@@ -429,6 +443,7 @@ export const useMultiplier = async (req, res) => {
         if ((isPlayer1 && gameData.player1MultiplierUsed) || (!isPlayer1 && gameData.player2MultiplierUsed)) {
             return res.status(403).json({ error: "You have already used a multiplier in this battle." });
         }
+        //notify opponent if not a bot
         const opponentId = isPlayer1 ? gameData.player2Id : gameData.player1Id;
         if (opponentId && !opponentId.startsWith('bot_')) {
             const title = 'Multiplier Activated!';

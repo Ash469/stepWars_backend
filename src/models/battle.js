@@ -4,7 +4,7 @@ const battleSchema = new mongoose.Schema({
   _id: { type: String, required: true },
   player1Id: { type: String, required: true, ref: 'User', index: true },
   player2Id: { type: String, ref: 'User', index: true },
-  gameType: { type: String, enum: ['BOT', 'FRIEND'], required: true },
+  gameType: { type: String, enum: ['BOT', 'FRIEND','PVP'], required: true },
   status: {
     type: String,
     enum: ['WAITING', 'ONGOING', 'COMPLETED', 'CANCELLED'],
@@ -20,7 +20,7 @@ const battleSchema = new mongoose.Schema({
     item: { type: mongoose.Schema.Types.ObjectId, ref: 'Reward', default: null }
   }, potentialReward: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Reward', // This links it to your Reward model
+    ref: 'Reward', 
     default: null
   },
 
