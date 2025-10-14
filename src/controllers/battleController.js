@@ -23,12 +23,12 @@ export const createPvpBattle = async (req, res) => {
         const rtdb = admin.database();
         const newGameRef = rtdb.ref("games").push();
         const gameId = newGameRef.key;
-        const potentialReward = await decidePotentialReward(player1Id); 
+        const potentialReward = await decidePotentialReward(player1Id);
         const newBattle = new BattleModel({
             _id: gameId,
             player1Id: player1Id,
             player2Id: player2Id,
-            gameType: 'PVP', 
+            gameType: 'PVP',
             status: 'ONGOING',
             potentialReward: potentialReward ? potentialReward._id : null,
         });
@@ -40,13 +40,13 @@ export const createPvpBattle = async (req, res) => {
             player2Id: player2Id,
             gameStatus: 'ongoing',
             startTime: admin.database.ServerValue.TIMESTAMP,
-            potentialReward: potentialReward 
-                ? { 
-                    name: potentialReward.name, 
-                    tier: potentialReward.tier, 
-                    imagePath: potentialReward.imagePath, 
-                    description: potentialReward.description 
-                  } 
+            potentialReward: potentialReward
+                ? {
+                    name: potentialReward.name,
+                    tier: potentialReward.tier,
+                    imagePath: potentialReward.imagePath,
+                    description: potentialReward.description
+                }
                 : null,
             step1Count: 0,
             step2Count: 0,
@@ -91,13 +91,13 @@ export const createBotBattle = async (req, res) => {
             player2Id: selectedBot.id,
             gameStatus: 'ongoing',
             startTime: admin.database.ServerValue.TIMESTAMP,
-            potentialReward: potentialReward 
-                ? { 
-                    name: potentialReward.name, 
-                    tier: potentialReward.tier, 
-                    imagePath: potentialReward.imagePath, 
-                    description: potentialReward.description 
-                  } 
+            potentialReward: potentialReward
+                ? {
+                    name: potentialReward.name,
+                    tier: potentialReward.tier,
+                    imagePath: potentialReward.imagePath,
+                    description: potentialReward.description
+                }
                 : null,
             p1Score: 0,
             p2Score: 0,
@@ -201,7 +201,6 @@ export const endBattle = async (req, res) => {
         if (!snapshot.exists() || !battleDetails) {
             return res.status(404).json({ error: "Battle not found." });
         }
-
         const battleData = snapshot.val();
         const { player1Id, player2Id } = battleData;
         const gameType = battleDetails.gameType;
@@ -211,7 +210,6 @@ export const endBattle = async (req, res) => {
         if (!player1Id || !player2Id) {
             return res.status(500).json({ error: "Corrupted battle data." });
         }
-
         let winnerId = null, loserId = null, result = "DRAW", isKnockout = false;
         let winnerCoins = 0, loserCoins = 0;
         const scoreDifference = Math.abs(p1Score - p2Score);
@@ -227,8 +225,6 @@ export const endBattle = async (req, res) => {
         } else {
             result = "DRAW";
         }
-
-        // --- (Coin calculation logic remains the same) ---
         if (gameType === 'FRIEND') {
             const pot = p1Score + p2Score;
             if (result === "DRAW") {
@@ -238,7 +234,7 @@ export const endBattle = async (req, res) => {
                 winnerCoins = pot;
                 loserCoins = 0;
             }
-        } else { 
+        } else {
             if (result === "KO") {
                 const winnerScore = winnerId === player1Id ? p1Score : p2Score;
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
@@ -254,11 +250,9 @@ export const endBattle = async (req, res) => {
                 loserCoins = p2Score + 1000;
             }
         }
-
         console.log(`[endBattle] Game ${gameId} | Result: ${result} | Winner: ${winnerId} | KO: ${isKnockout} | Scores: P1=${p1Score}, P2=${p2Score}`);
         const updatePromises = [];
         let finalRewardItem = null;
-
         if (result !== 'DRAW' && winnerId && !winnerId.startsWith('bot_')) {
             const winnerUpdatePayload = {
                 $inc: {
@@ -277,16 +271,14 @@ export const endBattle = async (req, res) => {
             }
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
         }
-
         if (result !== 'DRAW' && loserId && !loserId.startsWith('bot_')) {
-            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, { 
-                $inc: { 
-                    coins: loserCoins, 
-                    'stats.totalBattles': 1 
-                } 
+            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, {
+                $inc: {
+                    coins: loserCoins,
+                    'stats.totalBattles': 1
+                }
             }));
         }
-
         if (result === 'DRAW') {
             if (!player1Id.startsWith('bot_')) {
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
@@ -295,18 +287,16 @@ export const endBattle = async (req, res) => {
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
             }
         }
-
         if (updatePromises.length > 0) {
             await Promise.all(updatePromises);
         }
-
         await BattleModel.findByIdAndUpdate(gameId, {
             status: "COMPLETED",
             winnerId,
             result,
             player1FinalScore: p1Score,
             player2FinalScore: p2Score,
-            "rewards.coins": winnerCoins, 
+            "rewards.coins": winnerCoins,
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
         if (result === 'DRAW') {
@@ -319,17 +309,15 @@ export const endBattle = async (req, res) => {
                 sendNotificationToUser(player2Id, title, `The battle ended in a draw. You earned ${loserCoins} coins!`, imageUrl);
             }
         }
-        
         else if (result === 'KO') {
-             if (winnerId && !winnerId.startsWith('bot_')) {
+            if (winnerId && !winnerId.startsWith('bot_')) {
                 const title = '🔥 K.O. VICTORY! 🔥';
-                const body = finalRewardItem 
+                const body = finalRewardItem
                     ? `Knockout! You earned ${winnerCoins} coins and won a ${finalRewardItem.tier} ${finalRewardItem.name}!`
                     : `Knockout! You crushed your rival. Claim your ${winnerCoins} bonus coins now.`;
                 const imageUrl = `${process.env.BACKEND_URL}/ko-icon.png`;
                 sendNotificationToUser(winnerId, title, body, imageUrl);
             }
-            
             if (loserId && !loserId.startsWith('bot_')) {
                 const title = 'K.O. Defeat';
                 const body = `You got knocked out! You earned ${loserCoins} coins. Train harder!`;
@@ -339,13 +327,12 @@ export const endBattle = async (req, res) => {
         } else if (result === 'WIN') {
             if (winnerId && !winnerId.startsWith('bot_')) {
                 const title = '🎉 Victory! 🎉';
-                const body = finalRewardItem 
+                const body = finalRewardItem
                     ? `You won! Earned ${winnerCoins} coins and a ${finalRewardItem.tier} ${finalRewardItem.name}!`
                     : `Congratulations! You won and earned ${winnerCoins} coins!`;
                 const imageUrl = `${process.env.BACKEND_URL}/win-icon.png`;
                 sendNotificationToUser(winnerId, title, body, imageUrl);
             }
-            
             if (loserId && !loserId.startsWith('bot_')) {
                 const title = 'Battle Lost';
                 const body = `You lost this battle but earned ${loserCoins} coins. Keep fighting!`;
@@ -353,12 +340,8 @@ export const endBattle = async (req, res) => {
                 sendNotificationToUser(loserId, title, body, imageUrl);
             }
         }
-
-
         await rtdbRef.remove();
-
         const coinsForResponse = (winnerId && winnerId.startsWith('bot_')) ? loserCoins : winnerCoins;
-
         res.status(200).json({
             finalState: {
                 gameType: gameType,
@@ -369,12 +352,14 @@ export const endBattle = async (req, res) => {
                 player1Score: p1Score,
                 player2Score: p2Score,
                 rewards: {
-                    coins: coinsForResponse,
+                    winnerCoins: winnerCoins, 
+                    loserCoins: loserCoins,  
                     item: finalRewardItem,
                     message: finalRewardItem ? `You won a new ${finalRewardItem.tier} ${finalRewardItem.name}!` : null
                 }
             }
         });
+
 
     } catch (error) {
         console.error("Error in endBattle controller:", error);
@@ -407,7 +392,7 @@ export const cancelFriendBattle = async (req, res) => {
 export const useMultiplier = async (req, res) => {
     const { gameId, userId, multiplierType } = req.body;
 
-    if (!gameId || !userId || !multiplierType|| !MULTIPLIER_COSTS[multiplierType]) {
+    if (!gameId || !userId || !multiplierType || !MULTIPLIER_COSTS[multiplierType]) {
         return res.status(400).json({ error: "gameId, userId, and multiplierType are required." });
     }
 
@@ -448,7 +433,7 @@ export const useMultiplier = async (req, res) => {
         if (opponentId && !opponentId.startsWith('bot_')) {
             const title = 'Multiplier Activated!';
             const body = `${user.username} has just activated a ${multiplierType.replace('_', '.')}x multiplier!`;
-           let imageUrl = '';
+            let imageUrl = '';
             switch (multiplierType) {
                 case '1_5x':
                     imageUrl = `{process.env.BACKEND_URL}/public/multiplier-1.5x.png`;

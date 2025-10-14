@@ -6,9 +6,16 @@ export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
 
   try {
     const fcmDoc = await FcmTokenModel.findById(userId);
-    if (!fcmDoc || fcmDoc.tokens.length === 0) return;
+    // Ensure the user has tokens registered.
+    if (!fcmDoc || fcmDoc.tokens.length === 0) {
+        console.log(`[FCM] No tokens found for user ${userId}. Skipping notification.`);
+        return;
+    }
 
-    const messagePayload = {
+    // ✨ FIXED: Get only the last token from the array.
+    const latestToken = fcmDoc.tokens[fcmDoc.tokens.length - 1];
+
+    const message = {
       notification: { title, body },
       android: {
         notification: {
@@ -16,40 +23,22 @@ export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
           ...(imageUrl && { imageUrl }),
         },
       },
+      token: latestToken, 
     };
 
-    const tokens = fcmDoc.tokens;
-    const sendPromises = tokens.map(token => {
-      const message = { ...messagePayload, token };
-      return admin.messaging().send(message).catch(error => {
-        // --- THIS IS THE FIX ---
-        // If an error occurs for a specific token, check if it's an "unregistered" error.
-        // If so, return the invalid token so we can remove it later.
+    // Send the message and handle potential errors for that single token.
+    await admin.messaging().send(message).catch(async (error) => {
         if (error.code === 'messaging/registration-token-not-registered') {
-          console.log(`[FCM] Stale token identified for removal: ${token}`);
-          return { error: true, tokenToRemove: token };
+            console.log(`[FCM] Stale token ${latestToken} identified for removal.`);
+            // If the token is bad, remove it from the database.
+            await FcmTokenModel.updateOne(
+                { _id: userId },
+                { $pull: { tokens: latestToken } }
+            );
+        } else {
+            console.error(`[FCM] Error sending to token ${latestToken}:`, error);
         }
-        // For other errors, just log them.
-        console.error(`[FCM] Error sending to a token:`, error);
-        return null;
-      });
     });
-
-    const results = await Promise.all(sendPromises);
-
-    // --- NEW: Filter out the invalid tokens and remove them from the database ---
-    const tokensToRemove = results
-      .filter(result => result && result.error === true)
-      .map(result => result.tokenToRemove);
-
-    if (tokensToRemove.length > 0) {
-      console.log(`[FCM] Removing ${tokensToRemove.length} stale token(s) for user ${userId}.`);
-      await FcmTokenModel.updateOne(
-        { _id: userId },
-        { $pullAll: { tokens: tokensToRemove } }
-      );
-    }
-    // --- END FIX ---
 
   } catch (error) {
     console.error(`[FCM] Broader error sending notification to user ${userId}:`, error);
