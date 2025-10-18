@@ -25,7 +25,7 @@ app.use(bodyParser.json());
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
-app.get("/", (req, res) => res.send("Welcome to StepWars Backend Alive 🚀"));
+app.get("/", (req, res) => res.send(" Hello Ayush StepWars Backend Alive 🚀"));
 app.use("/auth", authRoutes);
 app.use("/api/battle", battleRoutes);
 app.use("/api/user",userRoutes);
