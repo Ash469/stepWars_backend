@@ -14,18 +14,22 @@ export const registerFcmToken = async (req, res) => {
     if (!user) {
         return res.status(404).json({ error: "User not found." });
     }
+
+    // --- MODIFICATION: Overwrite the token instead of adding to a set ---
+    // This will create a new document if one doesn't exist, or update the
+    // token field if it does.
     await FcmTokenModel.findByIdAndUpdate(
       uid,
       {
-        $addToSet: { tokens: token }, // $addToSet prevents duplicates
         $set: {
             user: uid,
+            token: token // Set/overwrite the single token field
         }
       },
       { upsert: true, new: true }
     );
 
-    console.log(`[FCM] Registered token for user ${uid}`);
+    console.log(`[FCM] Registered/Updated token for user ${uid}`);
     res.status(200).json({ message: "FCM token registered successfully." });
 
   } catch (error) {
@@ -34,7 +38,6 @@ export const registerFcmToken = async (req, res) => {
   }
 };
 
-// --- NEW FUNCTION ---
 export const unregisterFcmToken = async (req, res) => {
   const { uid, token } = req.body;
 
@@ -43,10 +46,12 @@ export const unregisterFcmToken = async (req, res) => {
   }
 
   try {
-    // Use $pull to remove the specific token from the tokens array
+    // --- MODIFICATION: Set the token to null instead of pulling from an array ---
+    // This effectively logs the user out from notifications on that device
+    // without affecting a potentially newer token from another device.
     await FcmTokenModel.updateOne(
-      { _id: uid },
-      { $pull: { tokens: token } }
+      { _id: uid, token: token }, // Only update if the token matches
+      { $set: { token: null } }
     );
 
     console.log(`[FCM] Unregistered token for user ${uid}`);
@@ -60,7 +65,6 @@ export const unregisterFcmToken = async (req, res) => {
 };
 
 export const sendTestNotification = async (req, res) => {
-  // Add imageUrl to the destructured request body
   const { token, title, body, imageUrl } = req.body;
 
   if (!token || !title || !body) {
@@ -68,7 +72,6 @@ export const sendTestNotification = async (req, res) => {
   }
 
   try {
-    // Pass the imageUrl to the service function
     await sendNotificationToToken(token, title, body, imageUrl);
     res.status(200).json({ success: true, message: "Test notification sent." });
   } catch (error) {

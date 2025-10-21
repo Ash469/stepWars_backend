@@ -8,7 +8,7 @@ const fcmTokenSchema = new mongoose.Schema({
     ref: 'User', 
     required: true 
   },
-  tokens: { type: [String], default: [] }
+  token: { type: String, default: null } 
 }, {
   _id: false, 
   timestamps: true 
