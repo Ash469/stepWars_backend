@@ -8,22 +8,19 @@ const getStartOfYesterdayUTC = () => {
 };
 
 export const runDailyReset = async () => {
-  console.log('--- [CRON JOB] Starting Daily Reset for all users ---');
+  console.log('--- [CRON JOB] Starting Daily Reset for ALL users ---');
   const yesterday = getStartOfYesterdayUTC();
 
   try {
-    const usersToReset = await UserModel.find({
-      $or: [
-        { todaysStepCount: { $gt: 0 } },
-        { 'stats.totalBattles': { $gt: 0 } }
-      ]
-    });
-
-    if (usersToReset.length === 0) {
-      console.log('[CRON JOB] No users needed a reset.');
+    // Fetch all users in the database
+    const allUsers = await UserModel.find({});
+    if (allUsers.length === 0) {
+      console.log('[CRON JOB] No users found in DB.');
       return;
     }
-    const activityPromises = usersToReset.map(user => {
+
+    // Archive activity ONLY for users who had some steps or battles
+    const activityPromises = allUsers.map(user => {
       if (user.todaysStepCount === 0 && user.stats.totalBattles === 0) return null;
 
       return DailyActivityModel.updateOne(
@@ -38,15 +35,18 @@ export const runDailyReset = async () => {
         },
         { upsert: true }
       );
-    }).filter(p => p !== null);
+    }).filter(Boolean);
 
     if (activityPromises.length > 0) {
       await Promise.all(activityPromises);
-      console.log(`[CRON JOB] Successfully archived activity for ${activityPromises.length} users.`);
+      console.log(`[CRON JOB] Archived activity for ${activityPromises.length} users.`);
+    } else {
+      console.log('[CRON JOB] No user activity to archive.');
     }
-    const userIdsToReset = usersToReset.map(u => u.uid);
+
+    // Reset all users' daily stats (regardless of activity)
     const resetResult = await UserModel.updateMany(
-      { uid: { $in: userIdsToReset } },
+      {}, // <-- no filter: affects all users
       {
         $set: {
           todaysStepCount: 0,
@@ -57,10 +57,10 @@ export const runDailyReset = async () => {
       }
     );
 
-    console.log(`[CRON JOB] Successfully reset stats for ${resetResult.modifiedCount} users.`);
+    console.log(`[CRON JOB] ✅ Reset stats for ${resetResult.modifiedCount} users.`);
     console.log('--- [CRON JOB] Finished ---');
 
   } catch (error) {
-    console.error('[CRON JOB] An error occurred during the reset process:', error);
+    console.error('[CRON JOB] ❌ Error during reset process:', error);
   }
 };

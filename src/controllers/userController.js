@@ -1,24 +1,125 @@
 import UserModel from '../models/user.js';
-import { db } from "../config/firebase.js";
-import {updateDailyActivity} from "../utils/activityService.js"
-import { handleDailyReset } from '../utils/resetService.js'; 
+import { db } from "../config/firebase.js"; // Keep if needed for other functions
 import DailyActivityModel from '../models/dailyActivity.js';
+
+// --- ADDED handleDailyReset function code here ---
+export const handleDailyReset = async (user) => {
+    const getDateStringInIndia = (date) => {
+        // Ensure date is valid before formatting
+        if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+            console.error("[Daily Reset] Invalid date passed to getDateStringInIndia:", date);
+            // Fallback to current date or handle as needed
+            date = new Date();
+        }
+        return new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD format
+            timeZone: 'Asia/Kolkata', // Use IST timezone
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(date);
+    };
+
+    const getStartOfDayUTC = (date) => {
+        // Ensure date is valid
+         if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+            console.error("[Daily Reset] Invalid date passed to getStartOfDayUTC:", date);
+            // Fallback to current date or handle as needed
+            date = new Date();
+         }
+        const d = new Date(date);
+        d.setUTCHours(0, 0, 0, 0); // Set hours, minutes, seconds, ms to 0 UTC
+        return d;
+    };
+
+    const todayIndiaString = getDateStringInIndia(new Date());
+    const lastActiveDate = user.lastActive || new Date(0); // Use epoch if lastActive is null/undefined
+    const lastActiveIndiaString = getDateStringInIndia(lastActiveDate);
+
+
+    if (lastActiveIndiaString === todayIndiaString) {
+         console.log(`[Daily Reset - Check] Not needed for user ${user.uid}. Already active today (${todayIndiaString}).`);
+        return null; // Return null if no reset happened
+    }
+
+    const archiveDate = getStartOfDayUTC(lastActiveDate); // Archive based on the ACTUAL last active date
+    console.log(`[Daily Reset - IST] Triggered for user ${user.uid}. Archiving stats for ${lastActiveIndiaString}`);
+
+    try {
+        // Archive the previous day's stats only if there were steps or battles
+        if (user.todaysStepCount > 0 || user.stats?.totalBattles > 0) {
+            await DailyActivityModel.findOneAndUpdate({
+                uid: user.uid,
+                date: archiveDate // Use the calculated archive date
+            }, {
+                $set: {
+                    stepCount: user.todaysStepCount || 0, // Ensure defaults
+                    battlesWon: user.stats?.battlesWon || 0,
+                    knockouts: user.stats?.knockouts || 0,
+                    totalBattles: user.stats?.totalBattles || 0,
+                }
+            }, {
+                upsert: true,
+                setDefaultsOnInsert: true
+            });
+             console.log(`[Daily Reset - Archive] Archived activity for ${user.uid} on ${archiveDate.toISOString()}`);
+        } else {
+             console.log(`[Daily Reset - Archive] No activity to archive for ${user.uid} on ${archiveDate.toISOString()}`);
+        }
+
+
+        // Reset the user's daily stats AND update the lastActive timestamp
+        const updatedUser = await UserModel.findOneAndUpdate({
+            uid: user.uid
+        }, {
+            $set: {
+                todaysStepCount: 0,
+                'stats.battlesWon': 0,
+                'stats.knockouts': 0,
+                'stats.totalBattles': 0,
+                lastActive: new Date() // Set lastActive to NOW
+            }
+        }, {
+            new: true // Return the UPDATED document
+        });
+
+        console.log(`[Daily Reset - Done] Successfully reset stats for user ${user.uid}. New step count: ${updatedUser?.todaysStepCount}`);
+        return updatedUser; // Return the user object with 0 steps
+
+    } catch (error) {
+        console.error(`[Daily Reset - IST] An error occurred during reset/archive for user ${user.uid}:`, error);
+        return null; // Return null on error
+    }
+};
+// --- END handleDailyReset function code ---
 
 
 export const getUserProfile = async (req, res) => {
     try {
-        const { uid } = req.params; 
+        const { uid } = req.params;
         if (!uid) {
             return res.status(400).json({ error: 'User UID is required.' });
         }
-        const user = await UserModel.findOne({ uid: uid });
-        if (!user) {
+
+        // Fetch the user initially only to pass it to the reset check
+        let initialUserCheck = await UserModel.findOne({ uid: uid });
+        if (!initialUserCheck) {
             return res.status(404).json({ error: 'User not found.' });
         }
-        console.log(`user found successfully ${user} `);
-        const updatedUser = await handleDailyReset(user);
-        console.log(`User after Daily Reset ${updatedUser}`);
-        res.status(200).json(updatedUser || user);
+
+        // Attempt the daily reset. This function handles the DB update internally.
+        // We await its completion to ensure updates happen before the final fetch.
+        await handleDailyReset(initialUserCheck);
+
+        // --- CRITICAL: Re-fetch the user AFTER the reset attempt ---
+        const finalUser = await UserModel.findOne({ uid: uid });
+        if (!finalUser) {
+             console.error(`[getUserProfile] CRITICAL ERROR: User ${uid} disappeared after reset check.`);
+             return res.status(404).json({ error: 'User data inconsistent after reset check.' });
+        }
+
+        console.log(`[getUserProfile] Final user state being sent. Steps: ${finalUser.todaysStepCount}`);
+
+        res.status(200).json(finalUser); // Always return the freshly fetched user
 
     } catch (error) {
         console.error("Error fetching user profile:", error);
@@ -29,7 +130,6 @@ export const getUserProfile = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
-        // We exclude fields that shouldn't be updated directly via this route
         const { email, stats, rewards, multipliers, coins, ...updateData } = req.body;
 
         if (!uid) {
@@ -39,7 +139,7 @@ export const updateUserProfile = async (req, res) => {
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },
             { $set: updateData },
-            { new: true } // This option returns the updated document
+            { new: true }
         );
 
         if (!updatedUser) {
@@ -64,11 +164,14 @@ export const syncUserSteps = async (req, res) => {
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },
             { $set: { todaysStepCount: todaysStepCount } },
-            { new: true } 
+            { new: true }
         );
         if (!updatedUser) {
             return res.status(404).json({ error: 'User not found.' });
         }
+        // Also update daily activity log
+        // await updateDailyActivity(uid, { $set: { stepCount: todaysStepCount } }); // updateDailyActivity seems removed, maybe integrate logic here or elsewhere if needed
+
         res.status(200).json({ message: 'Step count synced successfully.', user: updatedUser });
 
     } catch (error) {
@@ -77,8 +180,10 @@ export const syncUserSteps = async (req, res) => {
     }
 };
 
+// This function seems unused by the app and reads from Firestore - consider removing or migrating if needed
 export const getAllUsers = async (req, res) => {
   try {
+    // *** WARNING: Reads ALL users from FIRESTORE - potentially expensive ***
     const usersSnapshot = await db.collection("users").get();
     const users = usersSnapshot.docs.map(doc => doc.data());
     res.json({ users });
@@ -95,7 +200,7 @@ export const getUserRewards = async (req, res) => {
 
     try {
         const user = await UserModel.findOne({ uid: uid })
-            .populate('rewards.Fort rewards.Monument rewards.Legend rewards.Badge');
+            .populate('rewards.Fort rewards.Monument rewards.Legend rewards.Badge'); // Populate reward details
 
         if (!user) {
             return res.status(404).json({ error: "User not found." });
@@ -118,14 +223,14 @@ export const getActivityHistory = async (req, res) => {
 
   try {
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
-    sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7); // Get start of 7 days ago UTC
+    sevenDaysAgo.setUTCHours(0, 0, 0, 0); // Set to midnight UTC
 
     const activities = await DailyActivityModel.find({
       uid: uid,
-      date: { $gte: sevenDaysAgo }
+      date: { $gte: sevenDaysAgo } // Query activities from the last 7 days (UTC midnight)
     })
-    .sort({ date: 'asc' }); 
+    .sort({ date: 'asc' }); // Sort by date ascending
 
     res.status(200).json(activities);
 
@@ -134,3 +239,4 @@ export const getActivityHistory = async (req, res) => {
     res.status(500).json({ error: "An unexpected server error occurred." });
   }
 };
+
