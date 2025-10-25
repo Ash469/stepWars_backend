@@ -13,60 +13,31 @@ export const syncUser = async (req, res) => {
   }
 
   try {
-    const firestoreRef = db.collection("users").doc(uid);
-    const firestoreDoc = await firestoreRef.get();
-    if (firestoreDoc.exists) {
-      const firestoreData = firestoreDoc.data();
-      const dobAsDate = firestoreData.dob ? firestoreData.dob.toDate() : null;
-      const mongoUpdateData = {
-          uid: firestoreData.userId,
-          email: firestoreData.email,
-          username: firestoreData.username,
-          dob: dobAsDate,
-          gender: firestoreData.gender,
-          weight: firestoreData.weight,
-          height: firestoreData.height,
-          contactNo: firestoreData.contactNo,
-          profileImageUrl: firestoreData.profileImageUrl,
-          stepGoal: firestoreData.stepGoal,
-          todaysStepCount: firestoreData.todaysStepCount,
-      };
-      const mongoUser = await UserModel.findOneAndUpdate(
-        { uid: uid },
-        { 
-          $set: mongoUpdateData, 
-          $setOnInsert: {
-              coins: 0,
-              multipliers: {},
-              rewards: {},
-              stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 }
-          }
-        },
-        { upsert: true, new: true }
-      );
-      
-      return res.json({ message: "User profile synced to MongoDB", user: mongoUser });
-    } 
+    // --- MODIFICATION ---
+    // This function NO LONGER syncs from Firestore.
+    // It just ensures a minimal user record exists in MongoDB using
+    // findOneAndUpdate with upsert:true.
     
-    // Case 2: User NOT in Firestore (they just signed up but haven't completed the profile)
-    else {
-      await UserModel.findOneAndUpdate(
-          { uid: uid },
-          { 
-            $setOnInsert: {
-              uid: uid,
-              email: email,
-              coins: 0,
-              multipliers: {},
-              rewards: {},
-              stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 }
-            }
-          },
-          { upsert: true, new: true }
-      );
-
-      return res.status(201).json({ message: "Minimal user record created in MongoDB" });
-    }
+    // $setOnInsert will only apply if a new document is created.
+    // This is now safe to call multiple times without overwriting stats.
+    const mongoUser = await UserModel.findOneAndUpdate(
+      { uid: uid },
+      { 
+        $set: { email: email }, // Ensure email is up-to-date
+        $setOnInsert: {
+            uid: uid,
+            email: email,
+            coins: 0,
+            multipliers: { '1_5x': 0, '2x': 0, '3x': 0 },
+            rewards: { Fort: [], Monument: [], Legend: [], Badge: [] },
+            stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 },
+            todaysStepCount: 0 // Default to 0 on insert
+        }
+      },
+      { upsert: true, new: true } // 'new: true' returns the updated/created doc
+    );
+    
+    return res.json({ message: "User upserted in MongoDB", user: mongoUser });
 
   } catch (err) {
     console.error("Error in syncUser:", err);

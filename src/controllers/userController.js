@@ -169,8 +169,6 @@ export const syncUserSteps = async (req, res) => {
         if (!updatedUser) {
             return res.status(404).json({ error: 'User not found.' });
         }
-        // Also update daily activity log
-        // await updateDailyActivity(uid, { $set: { stepCount: todaysStepCount } }); // updateDailyActivity seems removed, maybe integrate logic here or elsewhere if needed
 
         res.status(200).json({ message: 'Step count synced successfully.', user: updatedUser });
 

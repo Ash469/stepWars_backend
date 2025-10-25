@@ -35,6 +35,8 @@ const selectWeightedRandom = (items) => {
         if (random < item.chance) return item;
         random -= item.chance;
     }
+    // Fallback in case of floating point issues, return the last item
+    return items[items.length - 1];
 };
 
 export const openMysteryBox = async (userId, boxType) => {
@@ -49,20 +51,40 @@ export const openMysteryBox = async (userId, boxType) => {
     if (!user.multipliers) user.multipliers = new Map();
     if (!user.rewards) user.rewards = new Map();
 
-    const lastOpened = user.mysteryBoxLastOpened.get(boxType);
-    if (lastOpened) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (lastOpened >= today) {
-            throw new Error(`You can only open the ${boxType} box once a day.`);
+    const lastOpenedTimestamp = user.mysteryBoxLastOpened.get(boxType);
+    const now = new Date();
+    
+    // --- MODIFICATION: Check if 24 hours have passed ---
+    if (lastOpenedTimestamp) {
+        const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000)); 
+        if (lastOpenedTimestamp > twentyFourHoursAgo) {
+            // It has NOT been 24 hours yet
+            throw new Error(`You can open the ${boxType} box again after 24 hours.`);
         }
     }
+    // --- END MODIFICATION ---
 
     user.coins -= box.price;
-    user.mysteryBoxLastOpened.set(boxType, new Date());
+    user.mysteryBoxLastOpened.set(boxType, now); // Store the current timestamp
 
     const rewardCategories = Object.keys(box.rewards).map(key => ({ type: key, chance: box.rewards[key].chance }));
-    const chosenCategory = selectWeightedRandom(rewardCategories).type;
+    const chosenCategoryItem = selectWeightedRandom(rewardCategories);
+    
+    // Handle potential undefined case from selectWeightedRandom
+    if (!chosenCategoryItem) {
+        console.error(`Error selecting reward category for ${boxType} box.`);
+        // Fallback: Give some coins back
+        const fallbackAmount = Math.floor(box.price / 4);
+        user.coins += fallbackAmount;
+        await user.save();
+        return { 
+            type: 'coins', 
+            amount: fallbackAmount, 
+            fallback: true,
+            newCoinBalance: user.coins 
+        };
+    }
+    const chosenCategory = chosenCategoryItem.type;
     let finalReward = {};
 
     switch (chosenCategory) {
@@ -75,7 +97,16 @@ export const openMysteryBox = async (userId, boxType) => {
 
         case 'multiplier':
             const multiplierConfig = box.rewards.multiplier;
-            const chosenMultiplier = selectWeightedRandom(multiplierConfig.types).type;
+            const chosenMultiplierItem = selectWeightedRandom(multiplierConfig.types);
+            if (!chosenMultiplierItem) { // Add safety check
+                 console.error(`Error selecting multiplier type for ${boxType} box.`);
+                 // Fallback: Give coins
+                 const fallbackAmount = Math.floor(box.price / 3);
+                 user.coins += fallbackAmount;
+                 finalReward = { type: 'coins', amount: fallbackAmount, fallback: true };
+                 break;
+            }
+            const chosenMultiplier = chosenMultiplierItem.type;
             const currentMultiplierCount = user.multipliers.get(chosenMultiplier) || 0;
             user.multipliers.set(chosenMultiplier, currentMultiplierCount + 1);
             finalReward = { type: 'multiplier', multiplierType: chosenMultiplier };
@@ -83,24 +114,56 @@ export const openMysteryBox = async (userId, boxType) => {
 
         case 'collectible':
             const collectibleConfig = box.rewards.collectible;
-            const chosenTier = selectWeightedRandom(collectibleConfig.tiers).tier;
-            const ownedRewardIds = new Set(Object.values(user.rewards.toObject()).flat().map(id => id.toString()));
+            const chosenTierItem = selectWeightedRandom(collectibleConfig.tiers);
+            if (!chosenTierItem) { // Add safety check
+                 console.error(`Error selecting collectible tier for ${boxType} box.`);
+                 // Fallback: Give coins
+                 const fallbackAmount = Math.floor(box.price / 3);
+                 user.coins += fallbackAmount;
+                 finalReward = { type: 'coins', amount: fallbackAmount, fallback: true };
+                 break;
+            }
+            const chosenTier = chosenTierItem.tier;
+            // Ensure rewards map exists and convert nested objects if needed
+            const userRewardsObject = user.rewards.toObject ? user.rewards.toObject() : (user.rewards || {});
+            const ownedRewardIds = new Set(
+                Object.values(userRewardsObject)
+                      .flat() // Flatten arrays from all categories
+                      .map(id => id?.toString()) // Safely convert to string
+                      .filter(id => id != null) // Filter out null/undefined
+            );
+            
             const unownedRewards = (await RewardModel.find({ tier: chosenTier })).filter(r => !ownedRewardIds.has(r._id.toString()));
 
             if (unownedRewards.length > 0) {
                 const rewardItem = unownedRewards[Math.floor(Math.random() * unownedRewards.length)];
-                const rewardCategory = rewardItem.type;
-                const categoryArray = user.rewards.get(rewardCategory) || [];
+                const rewardCategory = rewardItem.type; 
+                // Ensure the category exists in the map before pushing
+                if (!user.rewards.has(rewardCategory)) {
+                    user.rewards.set(rewardCategory, []);
+                }
+                const categoryArray = user.rewards.get(rewardCategory);
                 categoryArray.push(rewardItem._id);
-                user.rewards.set(rewardCategory, categoryArray);
+                // No need to set again if modifying array in place unless it was newly created
+                if (!user.rewards.has(rewardCategory)) { // Should not happen now, but safe check
+                   user.rewards.set(rewardCategory, categoryArray);
+                }
 
                 finalReward = { type: 'collectible', item: rewardItem };
             } else {
+                // Fallback if no unowned rewards found in the chosen tier
                 const fallbackAmount = Math.floor(box.price / 2);
                 user.coins += fallbackAmount;
                 finalReward = { type: 'coins', amount: fallbackAmount, fallback: true };
             }
             break;
+            
+        default: // Fallback for unknown category
+             console.error(`Unknown reward category selected: ${chosenCategory}`);
+             const defaultFallbackAmount = Math.floor(box.price / 4);
+             user.coins += defaultFallbackAmount;
+             finalReward = { type: 'coins', amount: defaultFallbackAmount, fallback: true };
+             break;
     }
 
     await user.save();
