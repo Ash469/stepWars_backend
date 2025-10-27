@@ -127,7 +127,7 @@ export const getUserProfile = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
-        const { email, stats, rewards, multipliers, coins, ...updateData } = req.body;
+        const { stats, rewards, multipliers, coins, ...updateData } = req.body;
 
         if (!uid) {
             return res.status(400).json({ error: 'User UID is required.' });
