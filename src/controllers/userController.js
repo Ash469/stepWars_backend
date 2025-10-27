@@ -1,8 +1,7 @@
 import UserModel from '../models/user.js';
-import { db } from "../config/firebase.js"; // Keep if needed for other functions
+import { db } from "../config/firebase.js";
 import DailyActivityModel from '../models/dailyActivity.js';
 
-// --- ADDED handleDailyReset function code here ---
 export const handleDailyReset = async (user) => {
     const getDateStringInIndia = (date) => {
         // Ensure date is valid before formatting
@@ -90,7 +89,7 @@ export const handleDailyReset = async (user) => {
         return null; // Return null on error
     }
 };
-// --- END handleDailyReset function code ---
+
 
 
 export const getUserProfile = async (req, res) => {
@@ -100,17 +99,16 @@ export const getUserProfile = async (req, res) => {
             return res.status(400).json({ error: 'User UID is required.' });
         }
 
-        // Fetch the user initially only to pass it to the reset check
+
         let initialUserCheck = await UserModel.findOne({ uid: uid });
         if (!initialUserCheck) {
             return res.status(404).json({ error: 'User not found.' });
         }
 
-        // Attempt the daily reset. This function handles the DB update internally.
-        // We await its completion to ensure updates happen before the final fetch.
+
         await handleDailyReset(initialUserCheck);
 
-        // --- CRITICAL: Re-fetch the user AFTER the reset attempt ---
+    
         const finalUser = await UserModel.findOne({ uid: uid });
         if (!finalUser) {
              console.error(`[getUserProfile] CRITICAL ERROR: User ${uid} disappeared after reset check.`);
@@ -119,14 +117,13 @@ export const getUserProfile = async (req, res) => {
 
         console.log(`[getUserProfile] Final user state being sent. Steps: ${finalUser.todaysStepCount}`);
 
-        res.status(200).json(finalUser); // Always return the freshly fetched user
+        res.status(200).json(finalUser); 
 
     } catch (error) {
         console.error("Error fetching user profile:", error);
         res.status(500).json({ error: 'An unexpected server error occurred.' });
     }
 };
-
 export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
@@ -139,14 +136,17 @@ export const updateUserProfile = async (req, res) => {
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },
             { $set: updateData },
-            { new: true }
+            
+            { new: true, upsert: true } 
+ 
         );
 
         if (!updatedUser) {
+            
             return res.status(404).json({ error: 'User not found.' });
         }
 
-        console.log(`[updateUserProfile] Successfully updated profile for user ${uid}`);
+        console.log(`[updateUserProfile] Successfully updated/created profile for user ${uid}`);
         res.status(200).json(updatedUser);
 
     } catch (error) {
@@ -178,10 +178,10 @@ export const syncUserSteps = async (req, res) => {
     }
 };
 
-// This function seems unused by the app and reads from Firestore - consider removing or migrating if needed
+
 export const getAllUsers = async (req, res) => {
   try {
-    // *** WARNING: Reads ALL users from FIRESTORE - potentially expensive ***
+
     const usersSnapshot = await db.collection("users").get();
     const users = usersSnapshot.docs.map(doc => doc.data());
     res.json({ users });
@@ -221,14 +221,14 @@ export const getActivityHistory = async (req, res) => {
 
   try {
     const sevenDaysAgo = new Date();
-    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7); // Get start of 7 days ago UTC
-    sevenDaysAgo.setUTCHours(0, 0, 0, 0); // Set to midnight UTC
+    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7); 
+    sevenDaysAgo.setUTCHours(0, 0, 0, 0); 
 
     const activities = await DailyActivityModel.find({
       uid: uid,
-      date: { $gte: sevenDaysAgo } // Query activities from the last 7 days (UTC midnight)
+      date: { $gte: sevenDaysAgo } 
     })
-    .sort({ date: 'asc' }); // Sort by date ascending
+    .sort({ date: 'asc' }); 
 
     res.status(200).json(activities);
 
