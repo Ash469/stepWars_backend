@@ -223,7 +223,6 @@ export const joinFriendBattle = async (req, res) => {
 
 export const endBattle = async (req, res) => {
     const { gameId, player1FinalScore, player2FinalScore } = req.body;
-    console.log(`[NOTIFICATION DEBUG] endBattle called for gameId: ${gameId}`);
     if (!gameId) return res.status(400).json({ error: "Game ID is required" });
 
     try {
@@ -234,23 +233,18 @@ export const endBattle = async (req, res) => {
         ]);
 
         if (!snapshot.exists() || !battleDetails) {
-            console.error(`[NOTIFICATION DEBUG] Battle not found for gameId: ${gameId}`);
             return res.status(404).json({ error: "Battle not found." });
         }
         const battleData = snapshot.val();
         const player1Id = battleData?.player1Id;
         const player2Id = battleData?.player2Id;
-        console.log(`[NOTIFICATION DEBUG] Players found: P1=${player1Id}, P2=${player2Id}`);
-
         if (!player1Id || !player2Id) {
-             console.error(`[NOTIFICATION DEBUG] Corrupted battle data - missing player IDs for gameId: ${gameId}`);
              return res.status(500).json({ error: "Corrupted battle data." });
         }
 
         const gameType = battleDetails.gameType;
         const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
         const p2Score = player2FinalScore ?? battleData.player2Score ?? 0;
-
 
         let winnerId = null, loserId = null, result = "DRAW", isKnockout = false;
         let winnerCoins = 0, loserCoins = 0;
@@ -281,24 +275,22 @@ export const endBattle = async (req, res) => {
             if (result === "KO") {
                 const winnerScore = winnerId === player1Id ? p1Score : p2Score;
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
-                winnerCoins = winnerScore + 5000;
+                winnerCoins = winnerScore + 3000;
                 loserCoins = loserScore;
             } else if (result === "WIN") {
                 const winnerScore = winnerId === player1Id ? p1Score : p2Score;
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
-                winnerCoins = winnerScore + 2000;
+                winnerCoins = winnerScore + 1000;
                 loserCoins = loserScore;
             } else { // DRAW
-                winnerCoins = p1Score + 1000;
-                loserCoins = p2Score + 1000;
+                winnerCoins = p1Score ;
+                loserCoins = p2Score ;
             }
         }
-        console.log(`[endBattle] Game ${gameId} | Result: ${result} | Winner: ${winnerId} | Loser: ${loserId} | KO: ${isKnockout} | Scores: P1=${p1Score}, P2=${p2Score} | Coins: Winner=${winnerCoins}, Loser=${loserCoins}`);
 
         const updatePromises = [];
         let finalRewardItem = null;
 
-        // --- Update Winner ---
         if (result !== 'DRAW' && winnerId && !winnerId.startsWith('bot_')) {
             const winnerUpdatePayload = {
                 $inc: {
@@ -313,16 +305,15 @@ export const endBattle = async (req, res) => {
                 if (finalRewardItem) {
                     const rewardCategory = finalRewardItem.type;
                     winnerUpdatePayload.$push = { [`rewards.${rewardCategory}`]: finalRewardItem._id };
-                     console.log(`[NOTIFICATION DEBUG] Awarding reward ${finalRewardItem.name} to winner ${winnerId}`);
+                    //  console.log(`[NOTIFICATION DEBUG] Awarding reward ${finalRewardItem.name} to winner ${winnerId}`);
                 }
             }
-             console.log(`[NOTIFICATION DEBUG] Updating winner (${winnerId}) stats/coins.`);
+            //  console.log(`[NOTIFICATION DEBUG] Updating winner (${winnerId}) stats/coins.`);
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
         }
 
-        // --- Update Loser ---
         if (result !== 'DRAW' && loserId && !loserId.startsWith('bot_')) {
-             console.log(`[NOTIFICATION DEBUG] Updating loser (${loserId}) stats/coins.`);
+            //  console.log(`[NOTIFICATION DEBUG] Updating loser (${loserId}) stats/coins.`);
             updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, {
                 $inc: {
                     coins: loserCoins,
@@ -331,27 +322,23 @@ export const endBattle = async (req, res) => {
             }));
         }
 
-        // --- Update Draw ---
         if (result === 'DRAW') {
             if (!player1Id.startsWith('bot_')) {
-                 console.log(`[NOTIFICATION DEBUG] Updating P1 (${player1Id}) stats/coins for DRAW.`);
+                //  console.log(`[NOTIFICATION DEBUG] Updating P1 (${player1Id}) stats/coins for DRAW.`);
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
             }
             if (!player2Id.startsWith('bot_')) {
-                 console.log(`[NOTIFICATION DEBUG] Updating P2 (${player2Id}) stats/coins for DRAW.`);
+                //  console.log(`[NOTIFICATION DEBUG] Updating P2 (${player2Id}) stats/coins for DRAW.`);
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
             }
         }
 
         if (updatePromises.length > 0) {
-            console.log(`[NOTIFICATION DEBUG] Executing ${updatePromises.length} database update promises.`);
             await Promise.all(updatePromises);
-            console.log(`[NOTIFICATION DEBUG] Database updates complete.`);
         } else {
              console.log(`[NOTIFICATION DEBUG] No database updates needed for users.`);
         }
 
-        // Update Battle document AFTER user updates
         await BattleModel.findByIdAndUpdate(gameId, {
             status: "COMPLETED",
             winnerId,
@@ -362,9 +349,8 @@ export const endBattle = async (req, res) => {
             "rewards.coins": winnerId ? winnerCoins : 0,
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
-         console.log(`[NOTIFICATION DEBUG] BattleModel updated.`);
+        //  console.log(`[NOTIFICATION DEBUG] BattleModel updated.`);
 
-        // --- Send Notifications AFTER DB updates are confirmed ---
         let title = '';
         let winnerBody = '', loserBody = '', drawP1Body = '', drawP2Body = '';
         let imageUrl = '', winImageUrl = '', lossImageUrl = '';
@@ -416,7 +402,7 @@ export const endBattle = async (req, res) => {
             winImageUrl = `${baseUrl}/public/win-icon.png`;
             lossImageUrl = `${baseUrl}/public/lose-icon.png`;
 
-             console.log(`[NOTIFICATION DEBUG] Preparing WIN notifications.`);
+            //  console.log(`[NOTIFICATION DEBUG] Preparing WIN notifications.`);
             if (winnerId && !winnerId.startsWith('bot_')) {
                   console.log(`   -> To Winner (${winnerId}): ${winnerBody}`);
                   sendNotificationToUser(winnerId, winTitleWin, winnerBody, winImageUrl);
@@ -426,8 +412,7 @@ export const endBattle = async (req, res) => {
                   sendNotificationToUser(loserId, winTitleLoss, loserBody, lossImageUrl);
             }
         }
-
-        // --- Moved RTDB Remove to AFTER sending notifications ---
+        
         try {
             await rtdbRef.remove();
             console.log(`[NOTIFICATION DEBUG] RTDB node removed for game ${gameId}.`);

@@ -91,7 +91,6 @@ export const handleDailyReset = async (user) => {
 };
 
 
-
 export const getUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
@@ -124,6 +123,7 @@ export const getUserProfile = async (req, res) => {
         res.status(500).json({ error: 'An unexpected server error occurred.' });
     }
 };
+
 export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
@@ -177,7 +177,6 @@ export const syncUserSteps = async (req, res) => {
         res.status(500).json({ error: 'An unexpected server error occurred.' });
     }
 };
-
 
 export const getAllUsers = async (req, res) => {
   try {
