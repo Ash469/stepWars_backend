@@ -236,4 +236,42 @@ export const getActivityHistory = async (req, res) => {
     res.status(500).json({ error: "An unexpected server error occurred." });
   }
 };
+export const getLifetimeStats = async (req, res) => {
+  const { uid } = req.params;
+  if (!uid) {
+    return res.status(400).json({ error: "User UID is required." });
+  }
+
+  try {
+    const stats = await DailyActivityModel.aggregate([
+      {
+        $match: { uid: uid }
+      },
+      {
+        $group: {
+          _id: null, 
+          totalSteps: { $sum: "$stepCount" },
+          totalBattlesWon: { $sum: "$battlesWon" },
+          totalKnockouts: { $sum: "$knockouts" },
+          totalBattles: { $sum: "$totalBattles" }
+        }
+      }
+    ]);
+
+    if (stats.length > 0) {
+      res.status(200).json(stats[0]);
+    } else {
+      res.status(200).json({
+        _id: null,
+        totalSteps: 0,
+        totalBattlesWon: 0,
+        totalKnockouts: 0,
+        totalBattles: 0
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching lifetime stats:", error);
+    res.status(500).json({ error: "An unexpected server error occurred." });
+  }
+};
 

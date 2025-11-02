@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserProfile,getAllUsers,syncUserSteps,getUserRewards,getActivityHistory,updateUserProfile} from '../controllers/userController.js';
+import { getUserProfile,getAllUsers,syncUserSteps,getUserRewards,getActivityHistory,updateUserProfile,getLifetimeStats} from '../controllers/userController.js';
 
 const router = express.Router();
 
@@ -10,5 +10,6 @@ router.put('/profile/:uid', updateUserProfile);
 router.post('/sync-steps', syncUserSteps);
 
 router.get('/activity/:uid', getActivityHistory);
+router.get('/activity/stats/:uid', getLifetimeStats);
 
 export default router;
