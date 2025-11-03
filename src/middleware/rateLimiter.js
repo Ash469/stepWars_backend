@@ -23,3 +23,11 @@ export const actionLimiter = rateLimit({
   standardHeaders: true,
 	legacyHeaders: false,
 });
+
+export const adminActionLimiter = rateLimit({
+	windowMs: 1 * 60 * 1000, // 1 minute
+	max: 5, 
+	message: 'Too many admin actions, please try again later.',
+  standardHeaders: true,
+	legacyHeaders: false,
+});

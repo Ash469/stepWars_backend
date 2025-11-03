@@ -14,6 +14,8 @@ import path from 'path';
 import { fileURLToPath } from 'url'; 
 import { runDailyReset } from './utils/dailyReset.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
+import { initializeRemoteConfig } from './config/remoteConfigService.js';
+import configRoutes from './routes/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +24,7 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-
+initializeRemoteConfig();
 
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
@@ -35,6 +37,7 @@ app.use("/api/user",userRoutes);
 app.use('/api/notifications', notificationRoutes); 
 app.use('/api/daily-reset',resetRoute);
 app.use('/api/mystery-box', mysteryBoxRoutes);
+app.use('/api/config', configRoutes);
 
 app.get("/sync-all-users", async (req, res) => {
   try {

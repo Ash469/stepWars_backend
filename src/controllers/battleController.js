@@ -5,12 +5,8 @@ import UserModel from "../models/user.js";
 import RewardModel from "../models/reward.js";
 import { sendNotificationToUser } from '../utils/notificationService.js';
 import { decidePotentialReward } from "../utils/rewardService.js";
+import { getMultiplierCosts } from '../config/remoteConfigService.js';
 
-const MULTIPLIER_COSTS = {
-    '1_5x': 100,
-    '2x': 200,
-    '3x': 300
-};
 
 // --- createPvpBattle, createBotBattle, createFriendBattle, joinFriendBattle remain the same ---
 export const createPvpBattle = async (req, res) => {
@@ -471,6 +467,7 @@ export const cancelFriendBattle = async (req, res) => {
 
 export const useMultiplier = async (req, res) => {
     const { gameId, userId, multiplierType } = req.body;
+    const MULTIPLIER_COSTS = getMultiplierCosts();
 
     if (!gameId || !userId || !multiplierType || !MULTIPLIER_COSTS[multiplierType]) {
         return res.status(400).json({ error: "gameId, userId, and multiplierType are required." });
