@@ -8,20 +8,16 @@ import {
     endBattle,
     useMultiplier 
 } from "../controllers/battleController.js";
+import { actionLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-router.post("/pvp/create", createPvpBattle);
-
-
-router.post("/bot", createBotBattle);
-
-router.post("/friend/create", createFriendBattle);
-router.post("/friend/join", joinFriendBattle);
-router.post("/friend/cancel", cancelFriendBattle);
-
-router.post("/end", endBattle);
-
-router.post('/use-multiplier', useMultiplier);
+router.post("/pvp/create", actionLimiter, createPvpBattle);
+router.post("/bot", actionLimiter, createBotBattle);
+router.post("/friend/create", actionLimiter, createFriendBattle);
+router.post("/friend/join", actionLimiter, joinFriendBattle);
+router.post("/friend/cancel", actionLimiter, cancelFriendBattle);
+router.post("/end", actionLimiter, endBattle);
+router.post('/use-multiplier', actionLimiter, useMultiplier);
 
 export default router;

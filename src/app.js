@@ -13,6 +13,7 @@ import mysteryBoxRoutes from './routes/mysteryBox.js';
 import path from 'path';
 import { fileURLToPath } from 'url'; 
 import { runDailyReset } from './utils/dailyReset.js';
+import { globalLimiter } from './middleware/rateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,7 +27,8 @@ app.use(bodyParser.json());
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
-app.get("/", (req, res) => res.send("StepWars Backend Alive Notification test 🚀"));
+app.get("/", (req, res) => res.send("StepWars Backend Alive with Rate Limits 🚀"));
+app.use('/api/', globalLimiter);
 app.use("/auth", authRoutes);
 app.use("/api/battle", battleRoutes);
 app.use("/api/user",userRoutes);
