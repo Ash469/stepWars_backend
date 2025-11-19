@@ -90,7 +90,6 @@ export const handleDailyReset = async (user) => {
     }
 };
 
-
 export const getUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
@@ -273,5 +272,33 @@ export const getLifetimeStats = async (req, res) => {
     console.error("Error fetching lifetime stats:", error);
     res.status(500).json({ error: "An unexpected server error occurred." });
   }
+};
+
+export const syncPastSteps = async (req, res) => {
+    const { uid, date, steps } = req.body;
+
+    if (!uid || !date || steps === undefined) {
+        return res.status(400).json({ error: "UID, date, and steps are required." });
+    }
+
+    try {
+        // Parse the date string from the client (YYYY-MM-DD)
+        const targetDate = new Date(date);
+        
+        // Update the DailyActivity archive for that specific date
+        // This overwrites whatever the Cron Job might have archived with the TRUE value
+        const updatedActivity = await DailyActivityModel.findOneAndUpdate(
+            { uid: uid, date: targetDate },
+            { $set: { stepCount: steps } },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        console.log(`[Sync Past Steps] Reconciliation for user ${uid} on ${date}: Updated to ${steps} steps.`);
+        res.status(200).json({ success: true, activity: updatedActivity });
+
+    } catch (error) {
+        console.error("[Sync Past Steps] Error:", error);
+        res.status(500).json({ error: "Failed to sync past steps." });
+    }
 };
 

@@ -15,19 +15,19 @@ const getStartOfPreviousDayIST_UTC = () => {
 };
 
 export const runDailyReset = async () => {
-  console.log('--- [CRON JOB] Starting Daily Reset for ALL users ---');
+  // console.log('--- [CRON JOB] Starting Daily Reset for ALL users ---');
   
   const dateToArchive = getStartOfPreviousDayIST_UTC();
  
   const dateToArchiveString = moment(dateToArchive).toISOString();
-
-  console.log(`[CRON JOB] Archiving data for date (representing IST day that ended, stored as UTC): ${dateToArchiveString}`);
+    
+  // console.log(`[CRON JOB] Archiving data for date (representing IST day that ended, stored as UTC): ${dateToArchiveString}`);
 
   try {
   
     const allUsers = await UserModel.find({});
     if (allUsers.length === 0) {
-      console.log('[CRON JOB] No users found in DB.');
+      // console.log('[CRON JOB] No users found in DB.');
       return;
     }
 
@@ -37,11 +37,11 @@ export const runDailyReset = async () => {
 
       // Skip archiving if there was no activity
       if (todaysSteps === 0 && totalBattles === 0) {
-         console.log(`[CRON JOB] Skipping archive for user ${user.uid} on ${dateToArchiveString} - no activity.`);
+        // console.log(`[CRON JOB] Skipping archive for user ${user.uid} on ${dateToArchiveString} - no activity.`);
          return null; 
       }
 
-      console.log(`[CRON JOB] Preparing archive for user ${user.uid} for date ${dateToArchiveString} with steps: ${todaysSteps}, battles: ${totalBattles}`);
+     // console.log(`[CRON JOB] Preparing archive for user ${user.uid} for date ${dateToArchiveString} with steps: ${todaysSteps}, battles: ${totalBattles}`);
       
       return DailyActivityModel.updateOne(
         { uid: user.uid, date: dateToArchive },
@@ -60,9 +60,9 @@ export const runDailyReset = async () => {
     // Execute all the archive operations
     if (activityPromises.length > 0) {
       await Promise.all(activityPromises);
-      console.log(`[CRON JOB] Archived activity for ${activityPromises.length} users for date ${dateToArchiveString}.`);
+    //  console.log(`[CRON JOB] Archived activity for ${activityPromises.length} users for date ${dateToArchiveString}.`);
     } else {
-      console.log(`[CRON JOB] No user activity needed archiving for date ${dateToArchiveString}.`);
+    //  console.log(`[CRON JOB] No user activity needed archiving for date ${dateToArchiveString}.`);
     }
 
     
@@ -79,7 +79,7 @@ export const runDailyReset = async () => {
       }
     );
 
-    console.log(`[CRON JOB] ✅ Reset daily stats for ${resetResult.modifiedCount} users.`);
+   // console.log(`[CRON JOB] ✅ Reset daily stats for ${resetResult.modifiedCount} users.`);
     console.log('--- [CRON JOB] Finished ---');
 
   } catch (error) {

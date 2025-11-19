@@ -28,8 +28,8 @@ const fetchAndCacheConfig = async (isInitial = false) => {
     } else {
       console.log('🔄 Remote Config cache REFRESHED on demand.');
     }
-    console.log(`Cached prices: 1.5x=${configCache['multiplier_1_5x_price']}`);
-    console.log(`Cached prices: Bronze=${configCache['bronze_box_price']}`);
+    // console.log(`Cached prices: 1.5x=${configCache['multiplier_1_5x_price']}`);
+    // console.log(`Cached prices: Bronze=${configCache['bronze_box_price']}`);
     
   } catch (error) {
     console.error(`❌ Failed to ${isInitial ? 'init' : 'refresh'} Remote Config:`, error.message);

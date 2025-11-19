@@ -2,23 +2,20 @@ import { admin } from '../config/firebase.js';
 import FcmTokenModel from '../models/fcmToken.js';
 
 export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
-  console.log(`[NOTIFICATION DEBUG] sendNotificationToUser called for userId: ${userId}`);
   if (!userId || userId.startsWith('bot_')) {
-       console.log(`[NOTIFICATION DEBUG] Skipping notification for bot or invalid userId: ${userId}`);
        return;
   }
 
   try {
-    console.log(`[NOTIFICATION DEBUG] Looking up token for userId: ${userId}`);
     const fcmDoc = await FcmTokenModel.findById(userId);
 
     if (!fcmDoc || !fcmDoc.token) {
-      console.log(`[NOTIFICATION DEBUG] No valid token found in DB for user ${userId}. Skipping notification.`);
+      // console.log(`[NOTIFICATION DEBUG] No valid token found in DB for user ${userId}. Skipping notification.`);
       return;
     }
 
     const token = fcmDoc.token;
-    console.log(`[NOTIFICATION DEBUG] Found token for user ${userId}: ${token}`);
+    // console.log(`[NOTIFICATION DEBUG] Found token for user ${userId}: ${token}`);
 
     const message = {
       notification: { title, body },
@@ -44,31 +41,31 @@ export const sendNotificationToUser = async (userId, title, body, imageUrl) => {
       token: token,
     };
 
-    console.log(`[NOTIFICATION DEBUG] Attempting to send message via send() to token: ${token}`);
+    // console.log(`[NOTIFICATION DEBUG] Attempting to send message via send() to token: ${token}`);
     await admin.messaging().send(message);
-    console.log(`[NOTIFICATION DEBUG] Successfully sent message via send() to user ${userId} (token: ${token})`);
+    // console.log(`[NOTIFICATION DEBUG] Successfully sent message via send() to user ${userId} (token: ${token})`);
 
   } catch (error) {
-    console.error(`[NOTIFICATION DEBUG] Error during send() for user ${userId}:`, error);
+    // console.error(`[NOTIFICATION DEBUG] Error during send() for user ${userId}:`, error);
     if (error.code === 'messaging/registration-token-not-registered' || error.code === 'messaging/invalid-registration-token') {
-      console.log(`[NOTIFICATION DEBUG] Stale token identified for user ${userId}. Removing it from DB.`);
+      // console.log(`[NOTIFICATION DEBUG] Stale token identified for user ${userId}. Removing it from DB.`);
       try {
         await FcmTokenModel.updateOne({ _id: userId }, { $set: { token: null } });
-        console.log(`[NOTIFICATION DEBUG] Successfully nulled token for user ${userId}.`);
+        // console.log(`[NOTIFICATION DEBUG] Successfully nulled token for user ${userId}.`);
       } catch (dbError) {
-         console.error(`[NOTIFICATION DEBUG] Failed to null token for user ${userId} after send error:`, dbError);
+         // console.error(`[NOTIFICATION DEBUG] Failed to null token for user ${userId} after send error:`, dbError);
       }
     } else {
-      console.error(`[NOTIFICATION DEBUG] Broader error sending notification to user ${userId}:`, error);
+      // console.error(`[NOTIFICATION DEBUG] Broader error sending notification to user ${userId}:`, error);
     }
   }
 };
 
 
 export const sendNotificationToToken = async (token, title, body, imageUrl) => {
-    console.log(`[NOTIFICATION DEBUG] sendNotificationToToken called for token: ${token}`);
+    // console.log(`[NOTIFICATION DEBUG] sendNotificationToToken called for token: ${token}`);
   if (!token) {
-       console.log(`[NOTIFICATION DEBUG] Skipping test notification, no token provided.`);
+      //  console.log(`[NOTIFICATION DEBUG] Skipping test notification, no token provided.`);
        return;
     }
   try {
@@ -94,15 +91,15 @@ export const sendNotificationToToken = async (token, title, body, imageUrl) => {
        },
       token: token,
     };
-     console.log(`[NOTIFICATION DEBUG] Attempting to send test message via send() to token: ${token}`);
+    //  console.log(`[NOTIFICATION DEBUG] Attempting to send test message via send() to token: ${token}`);
     await admin.messaging().send(message);
-     console.log(`[NOTIFICATION DEBUG] Successfully sent test message via send() to token: ${token}`);
+    //  console.log(`[NOTIFICATION DEBUG] Successfully sent test message via send() to token: ${token}`);
   } catch (error) {
-     console.error(`[NOTIFICATION DEBUG] Error sending test notification to token ${token}:`, error);
+    //  console.error(`[NOTIFICATION DEBUG] Error sending test notification to token ${token}:`, error);
     if (error.code === 'messaging/registration-token-not-registered') {
-        console.log(`[NOTIFICATION DEBUG] Test notification failed: Token ${token} is not registered.`);
+        // console.log(`[NOTIFICATION DEBUG] Test notification failed: Token ${token} is not registered.`);
     } else {
-        console.error(`[NOTIFICATION DEBUG] Error sending single notification to ${token}:`, error);
+        // console.error(`[NOTIFICATION DEBUG] Error sending single notification to ${token}:`, error);
     }
   }
 };
