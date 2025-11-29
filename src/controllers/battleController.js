@@ -275,8 +275,26 @@ const sendNotificationsAndCleanup = async (gameId, result, player1Id, player2Id,
         }
     
         const rtdbRef = admin.database().ref(`games/${gameId}`);
-        await rtdbRef.remove();
-        console.log(`[endBattle Cleanup] RTDB node removed for game ${gameId}.`);
+    
+    // Update RTDB to let the other player know the game is over
+    await rtdbRef.update({
+        gameStatus: 'completed',
+        result: result,
+        winnerId: winnerId,
+        loserId: loserId,
+        'rewards/winnerCoins': winnerCoins,
+        'rewards/loserCoins': loserCoins,
+        'rewards/item': finalRewardItem ? {
+            name: finalRewardItem.name,
+            tier: finalRewardItem.tier,
+            imagePath: finalRewardItem.imagePath
+        } : null
+    });
+
+    // Clean up after 60 seconds to allow clients to sync
+    setTimeout(() => {
+        rtdbRef.remove().catch(err => console.error("Error removing game node:", err));
+    }, 60000);
         
     } catch(error) {
          console.error(`[endBattle Background Task] CRITICAL ERROR during cleanup for ${gameId}:`, error);
