@@ -210,95 +210,72 @@ export const getUserRewards = async (req, res) => {
     }
 };
 
-
 export const getActivityHistory = async (req, res) => {
   const { uid } = req.params;
-  if (!uid) {
-    return res.status(400).json({ error: "User UID is required." });
-  }
-
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7); 
-    sevenDaysAgo.setUTCHours(0, 0, 0, 0); 
-
-    const activities = await DailyActivityModel.find({
-      uid: uid,
-      date: { $gte: sevenDaysAgo } 
-    })
-    .sort({ date: 'asc' }); 
-
-    res.status(200).json(activities);
-
+    const doc = await DailyActivityModel.findOne({ uid: uid });
+    res.status(200).json(doc ? doc.history : []);
   } catch (error) {
     console.error("Error fetching activity history:", error);
-    res.status(500).json({ error: "An unexpected server error occurred." });
+    res.status(500).json({ error: "Server error" });
   }
 };
+
 export const getLifetimeStats = async (req, res) => {
   const { uid } = req.params;
-  if (!uid) {
-    return res.status(400).json({ error: "User UID is required." });
-  }
-
   try {
-    const stats = await DailyActivityModel.aggregate([
-      {
-        $match: { uid: uid }
-      },
-      {
-        $group: {
-          _id: null, 
-          totalSteps: { $sum: "$stepCount" },
-          totalBattlesWon: { $sum: "$battlesWon" },
-          totalKnockouts: { $sum: "$knockouts" },
-          totalBattles: { $sum: "$totalBattles" }
-        }
-      }
-    ]);
+    const doc = await DailyActivityModel.findOne({ uid: uid });
+    
+    // Get stats or use defaults
+    const stats = doc?.lifetime || { 
+      totalSteps: 0, 
+      totalBattles: 0, 
+      battlesWon: 0, 
+      knockouts: 0 
+    };
 
-    if (stats.length > 0) {
-      res.status(200).json(stats[0]);
-    } else {
-      res.status(200).json({
-        _id: null,
-        totalSteps: 0,
-        totalBattlesWon: 0,
-        totalKnockouts: 0,
-        totalBattles: 0
-      });
-    }
+    const formattedStats = {
+      _id: null,
+      totalSteps: stats.totalSteps,
+      totalBattles: stats.totalBattles,
+      totalBattlesWon: stats.battlesWon,
+      totalKnockouts: stats.knockouts
+    };
+
+    res.status(200).json(formattedStats);
   } catch (error) {
     console.error("Error fetching lifetime stats:", error);
-    res.status(500).json({ error: "An unexpected server error occurred." });
+    res.status(500).json({ error: "Server error" });
   }
 };
 
 export const syncPastSteps = async (req, res) => {
-    const { uid, date, steps } = req.body;
+    const { uid, date, steps } = req.body; // date is "YYYY-MM-DD" from client
 
     if (!uid || !date || steps === undefined) {
         return res.status(400).json({ error: "UID, date, and steps are required." });
     }
 
     try {
-        // Parse the date string from the client (YYYY-MM-DD)
-        const targetDate = new Date(date);
+        const targetDateIST = moment.tz(date, 'YYYY-MM-DD', 'Asia/Kolkata');
+        const targetDateUTC = targetDateIST.utc().toDate();
         
-        // Update the DailyActivity archive for that specific date
-        // This overwrites whatever the Cron Job might have archived with the TRUE value
-        const updatedActivity = await DailyActivityModel.findOneAndUpdate(
-            { uid: uid, date: targetDate },
-            { $set: { stepCount: steps } },
-            { upsert: true, new: true, setDefaultsOnInsert: true }
+        console.log(`[Sync Past Steps] Attempting sync for ${uid}. Client Date: ${date} -> DB Date: ${targetDateUTC.toISOString()}`);
+        const result = await DailyActivityModel.updateOne(
+            { uid: uid, 'history.date': targetDateUTC },
+            { $set: { 'history.$.stepCount': steps } }
         );
 
-        console.log(`[Sync Past Steps] Reconciliation for user ${uid} on ${date}: Updated to ${steps} steps.`);
-        res.status(200).json({ success: true, activity: updatedActivity });
+        if (result.matchedCount === 0) {
+            console.warn(`[Sync Past Steps] WARNING: Date ${targetDateUTC.toISOString()} not found in history for ${uid}. Sync failed.`);
+            return res.status(404).json({ error: "Historical record not found for this date." });
+        } 
+
+        console.log(`[Sync Past Steps] SUCCESS: Updated ${date} to ${steps} steps for user ${uid}.`);
+        res.status(200).json({ success: true });
 
     } catch (error) {
         console.error("[Sync Past Steps] Error:", error);
         res.status(500).json({ error: "Failed to sync past steps." });
     }
 };
-
