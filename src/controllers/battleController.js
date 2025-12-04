@@ -72,7 +72,7 @@ export const createBotBattle = async (req, res) => {
         const gameId = newGameRef.key;
         const selectedBot = botId ? BotService.getBotById(botId) : BotService.selectRandomBot();
         if (!selectedBot) {
-             throw new Error(`Bot with ID ${botId || 'random'} not found.`);
+            throw new Error(`Bot with ID ${botId || 'random'} not found.`);
         }
         const potentialReward = await decidePotentialReward(userId);
         console.log(`[createBotBattle] Potential reward selected for game ${gameId}: ${potentialReward?.name || 'None'}`);
@@ -144,7 +144,7 @@ export const createFriendBattle = async (req, res) => {
             gameId: gameId,
             player1Id: userId,
             gameStatus: 'waiting',
-             potentialReward: potentialReward
+            potentialReward: potentialReward
                 ? {
                     name: potentialReward.name,
                     tier: potentialReward.tier,
@@ -200,14 +200,14 @@ export const joinFriendBattle = async (req, res) => {
             multiplier2: 1.0,
             player1MultiplierUsed: false,
             player2MultiplierUsed: false,
-             potentialRewardP2: potentialRewardP2
+            potentialRewardP2: potentialRewardP2
                 ? {
                     name: potentialRewardP2.name,
                     tier: potentialRewardP2.tier,
                     imagePath: potentialRewardP2.imagePath,
                     description: potentialRewardP2.description
-                 }
-                 : null
+                }
+                : null
         };
         await rtdbGameRef.update(rtdbUpdateData);
         res.status(200).json({ message: "Successfully joined battle.", gameId: gameId });
@@ -216,8 +216,7 @@ export const joinFriendBattle = async (req, res) => {
         res.status(500).json({ error: "Could not join friend battle." });
     }
 };
-
-const sendNotificationsAndCleanup = async (gameId, result, player1Id, player2Id, winnerId, loserId, finalRewardItem, winnerCoins, loserCoins) => {
+const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player2Id, winnerId, loserId, finalRewardItem, winnerCoins, loserCoins) => {
     const baseUrl = process.env.BACKEND_URL || 'http://localhost:8080';
     let title = '';
     let winnerBody = '', loserBody = '', drawP1Body = '', drawP2Body = '';
@@ -230,76 +229,47 @@ const sendNotificationsAndCleanup = async (gameId, result, player1Id, player2Id,
             drawP2Body = `The battle ended in a draw. You earned ${loserCoins} coins!`;
             imageUrl = `${baseUrl}/public/draw-icon.png`;
 
-             console.log(`[endBattle Cleanup] Preparing DRAW notifications.`);
-             if (!player1Id.startsWith('bot_')) {
-                  sendNotificationToUser(player1Id, title, drawP1Body, imageUrl);
-             }
-             if (!player2Id.startsWith('bot_')) {
-                  sendNotificationToUser(player2Id, title, drawP2Body, imageUrl);
-             }
+             if (!player1Id.startsWith('bot_')) sendNotificationToUser(player1Id, title, drawP1Body, imageUrl);
+             if (!player2Id.startsWith('bot_')) sendNotificationToUser(player2Id, title, drawP2Body, imageUrl);
 
         } else if (result === 'KO') {
-            const koTitleWin = '👑 K.O. VICTORY! 👑';
+            const koTitleWin = 'K.O. VICTORY!';
             const koTitleLoss = 'K.O. Defeat';
             winnerBody = finalRewardItem
                     ? `Knockout! You earned ${winnerCoins} coins and won a ${finalRewardItem.tier} ${finalRewardItem.name}!`
-                    : `Knockout! You crushed your rival. Claim your ${winnerCoins} bonus coins now.`;
-            loserBody = `You got knocked out! You earned ${loserCoins} coins. Train harder!`;
+                    : `Knockout! You earned ${winnerCoins} bonus coins.`;
+            loserBody = `You got knocked out! You earned ${loserCoins} coins.`;
             winImageUrl = `${baseUrl}/public/ko-icon.png`;
             lossImageUrl = `${baseUrl}/public/lose-icon.png`;
 
-             console.log(`[endBattle Cleanup] Preparing KO notifications.`);
-            if (winnerId && !winnerId.startsWith('bot_')) {
-                  sendNotificationToUser(winnerId, koTitleWin, winnerBody, winImageUrl);
-            }
-            if (loserId && !loserId.startsWith('bot_')) {
-                  sendNotificationToUser(loserId, koTitleLoss, loserBody, lossImageUrl);
-            }
+            if (winnerId && !winnerId.startsWith('bot_')) sendNotificationToUser(winnerId, koTitleWin, winnerBody, winImageUrl);
+            if (loserId && !loserId.startsWith('bot_')) sendNotificationToUser(loserId, koTitleLoss, loserBody, lossImageUrl);
 
         } else if (result === 'WIN') {
-            const winTitleWin = '🏆 Victory! 🏆';
+            const winTitleWin = 'Victory!';
             const winTitleLoss = 'Battle Lost';
              winnerBody = finalRewardItem
                     ? `You won! Earned ${winnerCoins} coins and a ${finalRewardItem.tier} ${finalRewardItem.name}!`
                     : `Congratulations! You won and earned ${winnerCoins} coins!`;
-            loserBody = `You lost this battle but earned ${loserCoins} coins. Keep fighting!`;
+            loserBody = `You lost but earned ${loserCoins} coins.`;
             winImageUrl = `${baseUrl}/public/win-icon.png`;
             lossImageUrl = `${baseUrl}/public/lose-icon.png`;
 
-            if (winnerId && !winnerId.startsWith('bot_')) {
-                  sendNotificationToUser(winnerId, winTitleWin, winnerBody, winImageUrl);
-            }
-            if (loserId && !loserId.startsWith('bot_')) {
-                  sendNotificationToUser(loserId, winTitleLoss, loserBody, lossImageUrl);
-            }
+            if (winnerId && !winnerId.startsWith('bot_')) sendNotificationToUser(winnerId, winTitleWin, winnerBody, winImageUrl);
+            if (loserId && !loserId.startsWith('bot_')) sendNotificationToUser(loserId, winTitleLoss, loserBody, lossImageUrl);
         }
     
+        // Cleanup RTDB after delay
         const rtdbRef = admin.database().ref(`games/${gameId}`);
-    
-    // Update RTDB to let the other player know the game is over
-    await rtdbRef.update({
-        gameStatus: 'completed',
-        result: result,
-        winnerId: winnerId,
-        loserId: loserId,
-        'rewards/winnerCoins': winnerCoins,
-        'rewards/loserCoins': loserCoins,
-        'rewards/item': finalRewardItem ? {
-            name: finalRewardItem.name,
-            tier: finalRewardItem.tier,
-            imagePath: finalRewardItem.imagePath
-        } : null
-    });
-
-    // Clean up after 60 seconds to allow clients to sync
-    setTimeout(() => {
-        rtdbRef.remove().catch(err => console.error("Error removing game node:", err));
-    }, 60000);
+        setTimeout(() => {
+            rtdbRef.remove().catch(err => console.error("Error removing game node:", err));
+        }, 60000);
         
     } catch(error) {
-         console.error(`[endBattle Background Task] CRITICAL ERROR during cleanup for ${gameId}:`, error);
+         console.error(`[endBattle Cleanup] Error:`, error);
     }
 };
+
 export const endBattle = async (req, res) => {
     const { gameId, player1FinalScore, player2FinalScore } = req.body;
     if (!gameId) return res.status(400).json({ error: "Game ID is required" });
@@ -317,9 +287,6 @@ export const endBattle = async (req, res) => {
         const battleData = snapshot.val();
         const player1Id = battleData?.player1Id;
         const player2Id = battleData?.player2Id;
-        if (!player1Id || !player2Id) {
-             return res.status(500).json({ error: "Corrupted battle data." });
-        }
 
         const gameType = battleDetails.gameType;
         const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
@@ -341,6 +308,8 @@ export const endBattle = async (req, res) => {
         } else {
             result = "DRAW";
         }
+
+        // Calculate Coins
         if (gameType === 'FRIEND') {
             const pot = p1Score + p2Score;
             if (result === "DRAW") {
@@ -350,7 +319,7 @@ export const endBattle = async (req, res) => {
                 winnerCoins = pot;
                 loserCoins = 0;
             }
-        } else { // BOT or PVP
+        } else {
             if (result === "KO") {
                 const winnerScore = winnerId === player1Id ? p1Score : p2Score;
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
@@ -361,15 +330,16 @@ export const endBattle = async (req, res) => {
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
                 winnerCoins = winnerScore + 1000;
                 loserCoins = loserScore;
-            } else { // DRAW
-                winnerCoins = p1Score ;
-                loserCoins = p2Score ;
+            } else {
+                winnerCoins = p1Score;
+                loserCoins = p2Score;
             }
         }
 
         const updatePromises = [];
         let finalRewardItem = null;
 
+        // Update Winner Stats & Rewards
         if (result !== 'DRAW' && winnerId && !winnerId.startsWith('bot_')) {
             const winnerUpdatePayload = {
                 $inc: {
@@ -389,6 +359,7 @@ export const endBattle = async (req, res) => {
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
         }
 
+        // Update Loser Stats
         if (result !== 'DRAW' && loserId && !loserId.startsWith('bot_')) {
             updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, {
                 $inc: {
@@ -398,6 +369,7 @@ export const endBattle = async (req, res) => {
             }));
         }
 
+        // Update Draw Stats
         if (result === 'DRAW') {
             if (!player1Id.startsWith('bot_')) {
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
@@ -406,9 +378,12 @@ export const endBattle = async (req, res) => {
                 updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
             }
         }
+
         if (updatePromises.length > 0) {
             await Promise.all(updatePromises);
         }
+
+        // 1. Update MongoDB
         await BattleModel.findByIdAndUpdate(gameId, {
             status: "COMPLETED",
             winnerId,
@@ -420,6 +395,23 @@ export const endBattle = async (req, res) => {
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
 
+        // 2. --- CRITICAL FIX: Update RTDB SYNCHRONOUSLY HERE --- 
+        // This ensures Player 2 gets the signal immediately.
+        await rtdbRef.update({
+            gameStatus: 'completed',
+            result: result,
+            winnerId: winnerId,
+            loserId: loserId,
+            'rewards/winnerCoins': winnerCoins,
+            'rewards/loserCoins': loserCoins,
+            'rewards/item': finalRewardItem ? {
+                name: finalRewardItem.name,
+                tier: finalRewardItem.tier,
+                imagePath: finalRewardItem.imagePath
+            } : null
+        });
+
+        // 3. Send Response to Player 1
         res.status(200).json({
             finalState: {
                 gameType: gameType,
@@ -433,29 +425,30 @@ export const endBattle = async (req, res) => {
                     winnerCoins: winnerCoins,
                     loserCoins: loserCoins,
                     item: finalRewardItem ? {
-                       name: finalRewardItem.name,
-                       tier: finalRewardItem.tier,
-                       imagePath: finalRewardItem.imagePath,
-                       description: finalRewardItem.description
+                        name: finalRewardItem.name,
+                        tier: finalRewardItem.tier,
+                        imagePath: finalRewardItem.imagePath,
+                        description: finalRewardItem.description
                     } : null,
-                    message: finalRewardItem ? `You won a new ${finalRewardItem.tier} ${finalRewardItem.name}!` : null
                 }
             }
         });
 
-        sendNotificationsAndCleanup(gameId, result, player1Id, player2Id, winnerId, loserId, finalRewardItem, winnerCoins, loserCoins)
+        // 4. Send Notifications & Cleanup (Background Task)
+        // We removed the RTDB update from inside this function since we did it above
+        sendNotificationsOnlyAndCleanup(gameId, result, player1Id, player2Id, winnerId, loserId, finalRewardItem, winnerCoins, loserCoins)
             .catch(error => {
-                console.error(`[endBattle Background Task] Error in async cleanup for ${gameId}:`, error);
+                console.error(`[endBattle Cleanup] Error:`, error);
             });
 
-
     } catch (error) {
-        console.error("[endBattle] Error in endBattle controller:", error);
+        console.error("[endBattle] Error:", error);
         if (!res.headersSent) {
-             res.status(500).json({ error: "An unexpected error occurred." });
+            res.status(500).json({ error: "An unexpected error occurred." });
         }
     }
 };
+
 
 export const cancelFriendBattle = async (req, res) => {
     const { gameId } = req.body;
@@ -518,7 +511,7 @@ export const useMultiplier = async (req, res) => {
         }
 
         const opponentId = isPlayer1 ? gameData.player2Id : gameData.player1Id;
-         const baseUrl = process.env.BACKEND_URL || 'http://localhost:8080';
+        const baseUrl = process.env.BACKEND_URL || 'http://localhost:8080';
         if (opponentId && !opponentId.startsWith('bot_')) {
             const title = 'Multiplier Activated!';
             const body = `${user.username || 'Opponent'} has just activated a ${multiplierType.replace('_', '.')}x multiplier!`;
