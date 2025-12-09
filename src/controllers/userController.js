@@ -93,21 +93,22 @@ export const handleDailyReset = async (user) => {
 export const getUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
-        if (!uid) {
-            return res.status(400).json({ error: 'User UID is required.' });
-        }
-        let initialUserCheck = await UserModel.findOne({ uid: uid });
-        if (!initialUserCheck) {
-            return res.status(404).json({ error: 'User not found.' });
-        }
+        if (!uid) return res.status(400).json({ error: 'User UID is required.' });
+
+        // --- FIX: Use 'user' consistently ---
+        let user = await UserModel.findOne({ uid: uid });
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+
         const resetUser = await handleDailyReset(user);
         if (resetUser) {
-            user = resetUser;
+            user = resetUser; // Now 'user' is defined, so this works
         }
+
         res.status(200).json(user);
+
     } catch (error) {
-        console.error("Error fetching user profile:", error);
-        res.status(500).json({ error: 'An unexpected server error occurred.' });
+        console.error("Error fetching profile:", error);
+        res.status(500).json({ error: 'Server error' });
     }
 };
 

@@ -6,38 +6,33 @@ import admin from "firebase-admin";
 const otpStore = {};
 
 export const syncUser = async (req, res) => {
-  const { uid, email } = req.body;
+  const { uid, email } = req.body; // Removed username/profileImageUrl per your request
 
-  if (!uid) {
-    return res.status(400).json({ error: "uid is required" });
-  }
+  if (!uid) return res.status(400).json({ error: "uid is required" });
 
   try {
-    // --- MODIFICATION ---
-    // This function NO LONGER syncs from Firestore.
-    // It just ensures a minimal user record exists in MongoDB using
-    // findOneAndUpdate with upsert:true.
-    
-    // $setOnInsert will only apply if a new document is created.
-    // This is now safe to call multiple times without overwriting stats.
     const mongoUser = await UserModel.findOneAndUpdate(
       { uid: uid },
       { 
-        $set: { email: email }, // Ensure email is up-to-date
+        // 1. Fields to ALWAYS update
+        $set: { email: email }, 
+        
+        // 2. Fields to set ONLY ON INSERT
+        // CRITICAL FIX: Do NOT include 'email' here because it is already in $set
         $setOnInsert: {
             uid: uid,
-            email: email,
+            // email: email, <--- REMOVED THIS LINE TO FIX CONFLICT ERROR
             coins: 0,
             multipliers: { '1_5x': 0, '2x': 0, '3x': 0 },
             rewards: { Fort: [], Monument: [], Legend: [], Badge: [] },
             stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 },
-            todaysStepCount: 0 // Default to 0 on insert
+            todaysStepCount: 0 
         }
       },
-      { upsert: true, new: true } // 'new: true' returns the updated/created doc
+      { upsert: true, new: true } 
     );
     
-    return res.json({ message: "User upserted in MongoDB", user: mongoUser });
+    return res.json({ message: "User synced", user: mongoUser });
 
   } catch (err) {
     console.error("Error in syncUser:", err);
