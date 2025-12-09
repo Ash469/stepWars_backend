@@ -1,72 +1,72 @@
 import UserModel from '../models/user.js';
 import { db } from "../config/firebase.js";
 import DailyActivityModel from '../models/dailyActivity.js';
+import moment from 'moment-timezone';
+
+const getISTMidnightAsUTC = (dateInput) => {
+    return moment(dateInput).tz('Asia/Kolkata').startOf('day').toDate();
+};
 
 export const handleDailyReset = async (user) => {
-    const getDateStringInIndia = (date) => {
-        // Ensure date is valid before formatting
-        if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
-            console.error("[Daily Reset] Invalid date passed to getDateStringInIndia:", date);
-            // Fallback to current date or handle as needed
-            date = new Date();
-        }
-        return new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD format
-            timeZone: 'Asia/Kolkata', // Use IST timezone
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-        }).format(date);
-    };
+    const todayIST = moment().tz('Asia/Kolkata');
+    const todayString = todayIST.format('YYYY-MM-DD');
 
-    const getStartOfDayUTC = (date) => {
-        // Ensure date is valid
-         if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
-            console.error("[Daily Reset] Invalid date passed to getStartOfDayUTC:", date);
-            // Fallback to current date or handle as needed
-            date = new Date();
-         }
-        const d = new Date(date);
-        d.setUTCHours(0, 0, 0, 0); // Set hours, minutes, seconds, ms to 0 UTC
-        return d;
-    };
+    const lastActiveDate = user.lastActive || new Date(0);
+    const lastActiveIST = moment(lastActiveDate).tz('Asia/Kolkata');
+    const lastActiveString = lastActiveIST.format('YYYY-MM-DD');
 
-    const todayIndiaString = getDateStringInIndia(new Date());
-    const lastActiveDate = user.lastActive || new Date(0); // Use epoch if lastActive is null/undefined
-    const lastActiveIndiaString = getDateStringInIndia(lastActiveDate);
-
-
-    if (lastActiveIndiaString === todayIndiaString) {
-         console.log(`[Daily Reset - Check] Not needed for user ${user.uid}. Already active today (${todayIndiaString}).`);
-        return null; // Return null if no reset happened
+    if (lastActiveString === todayString) {
+        return null;
     }
+    const archiveDate = lastActiveIST.startOf('day').toDate();
 
-    const archiveDate = getStartOfDayUTC(lastActiveDate); // Archive based on the ACTUAL last active date
-    console.log(`[Daily Reset - IST] Triggered for user ${user.uid}. Archiving stats for ${lastActiveIndiaString}`);
+    console.log(`[Daily Reset - IST] Triggered for user ${user.uid}. Archiving for ${lastActiveString}. DB Timestamp: ${archiveDate.toISOString()}`);
 
     try {
-        // Archive the previous day's stats only if there were steps or battles
-        if (user.todaysStepCount > 0 || user.stats?.totalBattles > 0) {
+        // Archive stats if there was any activity
+        if ((user.todaysStepCount > 0) || (user.stats?.totalBattles > 0)) {
             await DailyActivityModel.findOneAndUpdate({
                 uid: user.uid,
-                date: archiveDate // Use the calculated archive date
+                'history.date': archiveDate // Check if record already exists for this exact timestamp
             }, {
                 $set: {
-                    stepCount: user.todaysStepCount || 0, // Ensure defaults
-                    battlesWon: user.stats?.battlesWon || 0,
-                    knockouts: user.stats?.knockouts || 0,
-                    totalBattles: user.stats?.totalBattles || 0,
+                    // If record exists, update it (e.g. sync correction)
+                    'history.$.stepCount': user.todaysStepCount || 0,
+                    'history.$.battlesWon': user.stats?.battlesWon || 0,
+                    'history.$.knockouts': user.stats?.knockouts || 0,
+                    'history.$.totalBattles': user.stats?.totalBattles || 0,
                 }
             }, {
-                upsert: true,
-                setDefaultsOnInsert: true
             });
-             console.log(`[Daily Reset - Archive] Archived activity for ${user.uid} on ${archiveDate.toISOString()}`);
-        } else {
-             console.log(`[Daily Reset - Archive] No activity to archive for ${user.uid} on ${archiveDate.toISOString()}`);
+            const exists = await DailyActivityModel.findOne({ uid: user.uid, 'history.date': archiveDate });
+            if (!exists) {
+                await DailyActivityModel.findOneAndUpdate(
+                    { uid: user.uid },
+                    {
+                        $push: {
+                            history: {
+                                $each: [{
+                                    date: archiveDate,
+                                    stepCount: user.todaysStepCount || 0
+                                }],
+                                $position: 0, // Add to top
+                                $slice: 28    // Keep last 28 days
+                            }
+                        },
+                        // Update lifetime stats
+                        $inc: {
+                            'lifetime.totalSteps': user.todaysStepCount || 0,
+                            'lifetime.totalBattles': user.stats?.totalBattles || 0,
+                            'lifetime.battlesWon': user.stats?.battlesWon || 0,
+                            'lifetime.knockouts': user.stats?.knockouts || 0
+                        }
+                    },
+                    { upsert: true }
+                );
+            }
         }
 
-
-        // Reset the user's daily stats AND update the lastActive timestamp
+        // Reset User Data for the New Day
         const updatedUser = await UserModel.findOneAndUpdate({
             uid: user.uid
         }, {
@@ -75,18 +75,18 @@ export const handleDailyReset = async (user) => {
                 'stats.battlesWon': 0,
                 'stats.knockouts': 0,
                 'stats.totalBattles': 0,
-                lastActive: new Date() // Set lastActive to NOW
+                lastActive: new Date() // Updates lastActive to NOW (UTC)
             }
         }, {
-            new: true // Return the UPDATED document
+            new: true
         });
 
-        console.log(`[Daily Reset - Done] Successfully reset stats for user ${user.uid}. New step count: ${updatedUser?.todaysStepCount}`);
-        return updatedUser; // Return the user object with 0 steps
+        console.log(`[Daily Reset] Reset complete for ${user.uid}. New Steps: ${updatedUser.todaysStepCount}`);
+        return updatedUser;
 
     } catch (error) {
-        console.error(`[Daily Reset - IST] An error occurred during reset/archive for user ${user.uid}:`, error);
-        return null; // Return null on error
+        console.error(`[Daily Reset] Error:`, error);
+        return null;
     }
 };
 
@@ -96,27 +96,15 @@ export const getUserProfile = async (req, res) => {
         if (!uid) {
             return res.status(400).json({ error: 'User UID is required.' });
         }
-
-
         let initialUserCheck = await UserModel.findOne({ uid: uid });
         if (!initialUserCheck) {
             return res.status(404).json({ error: 'User not found.' });
         }
-
-
-        await handleDailyReset(initialUserCheck);
-
-    
-        const finalUser = await UserModel.findOne({ uid: uid });
-        if (!finalUser) {
-             console.error(`[getUserProfile] CRITICAL ERROR: User ${uid} disappeared after reset check.`);
-             return res.status(404).json({ error: 'User data inconsistent after reset check.' });
+        const resetUser = await handleDailyReset(user);
+        if (resetUser) {
+            user = resetUser;
         }
-
-        console.log(`[getUserProfile] Final user state being sent. Steps: ${finalUser.todaysStepCount}`);
-
-        res.status(200).json(finalUser); 
-
+        res.status(200).json(user);
     } catch (error) {
         console.error("Error fetching user profile:", error);
         res.status(500).json({ error: 'An unexpected server error occurred.' });
@@ -127,65 +115,47 @@ export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
         const { stats, rewards, multipliers, coins, ...updateData } = req.body;
-
-        if (!uid) {
-            return res.status(400).json({ error: 'User UID is required.' });
-        }
-
+        if (!uid) return res.status(400).json({ error: 'User UID is required.' });
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },
             { $set: updateData },
-            
-            { new: true, upsert: true } 
- 
+            { new: true, upsert: true }
         );
-
-        if (!updatedUser) {
-            
-            return res.status(404).json({ error: 'User not found.' });
-        }
-
-        console.log(`[updateUserProfile] Successfully updated/created profile for user ${uid}`);
+        if (!updatedUser) return res.status(404).json({ error: 'User not found.' });
         res.status(200).json(updatedUser);
-
     } catch (error) {
-        console.error("Error updating user profile:", error);
-        res.status(500).json({ error: 'An unexpected server error occurred.' });
+        console.error("Error updating profile:", error);
+        res.status(500).json({ error: 'Server error' });
     }
 };
 
 export const syncUserSteps = async (req, res) => {
     try {
         const { uid, todaysStepCount } = req.body;
-        if (!uid || todaysStepCount === undefined) {
-            return res.status(400).json({ error: 'User UID and todaysStepCount are required.' });
-        }
+        if (!uid || todaysStepCount === undefined) return res.status(400).json({ error: 'Missing data' });
+
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },
             { $set: { todaysStepCount: todaysStepCount } },
             { new: true }
         );
-        if (!updatedUser) {
-            return res.status(404).json({ error: 'User not found.' });
-        }
-
-        res.status(200).json({ message: 'Step count synced successfully.', user: updatedUser });
-
+        if (!updatedUser) return res.status(404).json({ error: 'User not found' });
+        res.status(200).json({ message: 'Synced', user: updatedUser });
     } catch (error) {
-        console.error("Error syncing user steps:", error);
-        res.status(500).json({ error: 'An unexpected server error occurred.' });
+        console.error("Error syncing steps:", error);
+        res.status(500).json({ error: 'Server error' });
     }
 };
 
 export const getAllUsers = async (req, res) => {
-  try {
+    try {
 
-    const usersSnapshot = await db.collection("users").get();
-    const users = usersSnapshot.docs.map(doc => doc.data());
-    res.json({ users });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+        const usersSnapshot = await db.collection("users").get();
+        const users = usersSnapshot.docs.map(doc => doc.data());
+        res.json({ users });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 };
 
 export const getUserRewards = async (req, res) => {
@@ -211,71 +181,79 @@ export const getUserRewards = async (req, res) => {
 };
 
 export const getActivityHistory = async (req, res) => {
-  const { uid } = req.params;
-  try {
-    const doc = await DailyActivityModel.findOne({ uid: uid });
-    res.status(200).json(doc ? doc.history : []);
-  } catch (error) {
-    console.error("Error fetching activity history:", error);
-    res.status(500).json({ error: "Server error" });
-  }
+    const { uid } = req.params;
+    try {
+        const doc = await DailyActivityModel.findOne({ uid: uid });
+        res.status(200).json(doc ? doc.history : []);
+    } catch (error) {
+        console.error("Error fetching activity history:", error);
+        res.status(500).json({ error: "Server error" });
+    }
 };
 
 export const getLifetimeStats = async (req, res) => {
-  const { uid } = req.params;
-  try {
-    const doc = await DailyActivityModel.findOne({ uid: uid });
-    
-    // Get stats or use defaults
-    const stats = doc?.lifetime || { 
-      totalSteps: 0, 
-      totalBattles: 0, 
-      battlesWon: 0, 
-      knockouts: 0 
-    };
+    const { uid } = req.params;
+    try {
+        const doc = await DailyActivityModel.findOne({ uid: uid });
 
-    const formattedStats = {
-      _id: null,
-      totalSteps: stats.totalSteps,
-      totalBattles: stats.totalBattles,
-      totalBattlesWon: stats.battlesWon,
-      totalKnockouts: stats.knockouts
-    };
+        // Get stats or use defaults
+        const stats = doc?.lifetime || {
+            totalSteps: 0,
+            totalBattles: 0,
+            battlesWon: 0,
+            knockouts: 0
+        };
 
-    res.status(200).json(formattedStats);
-  } catch (error) {
-    console.error("Error fetching lifetime stats:", error);
-    res.status(500).json({ error: "Server error" });
-  }
+        const formattedStats = {
+            _id: null,
+            totalSteps: stats.totalSteps,
+            totalBattles: stats.totalBattles,
+            totalBattlesWon: stats.battlesWon,
+            totalKnockouts: stats.knockouts
+        };
+
+        res.status(200).json(formattedStats);
+    } catch (error) {
+        console.error("Error fetching lifetime stats:", error);
+        res.status(500).json({ error: "Server error" });
+    }
 };
 
 export const syncPastSteps = async (req, res) => {
-    const { uid, date, steps } = req.body; // date is "YYYY-MM-DD" from client
+    const { uid, date, steps } = req.body; // date is "YYYY-MM-DD"
 
     if (!uid || !date || steps === undefined) {
-        return res.status(400).json({ error: "UID, date, and steps are required." });
+        return res.status(400).json({ error: "UID, date, and steps required." });
     }
 
     try {
-        const targetDateIST = moment.tz(date, 'YYYY-MM-DD', 'Asia/Kolkata');
-        const targetDateUTC = targetDateIST.utc().toDate();
-        
-        console.log(`[Sync Past Steps] Attempting sync for ${uid}. Client Date: ${date} -> DB Date: ${targetDateUTC.toISOString()}`);
+        const targetDateUTC = moment.tz(date, 'YYYY-MM-DD', 'Asia/Kolkata').startOf('day').toDate();
+        console.log(`[Sync Past] Syncing ${steps} steps for ${uid} on ${date} (DB Time: ${targetDateUTC.toISOString()})`);
         const result = await DailyActivityModel.updateOne(
             { uid: uid, 'history.date': targetDateUTC },
             { $set: { 'history.$.stepCount': steps } }
         );
-
         if (result.matchedCount === 0) {
-            console.warn(`[Sync Past Steps] WARNING: Date ${targetDateUTC.toISOString()} not found in history for ${uid}. Sync failed.`);
-            return res.status(404).json({ error: "Historical record not found for this date." });
-        } 
-
-        console.log(`[Sync Past Steps] SUCCESS: Updated ${date} to ${steps} steps for user ${uid}.`);
+            console.log(`[Sync Past] Record missing. Creating new history entry.`);
+            await DailyActivityModel.updateOne(
+                { uid: uid },
+                {
+                    $push: {
+                        history: {
+                            $each: [{ date: targetDateUTC, stepCount: steps }],
+                            $position: 0,
+                            $slice: 28
+                        }
+                    },
+                    $inc: { 'lifetime.totalSteps': steps } // Add these "missed" steps to lifetime
+                },
+                { upsert: true }
+            );
+        }
         res.status(200).json({ success: true });
 
     } catch (error) {
-        console.error("[Sync Past Steps] Error:", error);
+        console.error("[Sync Past] Error:", error);
         res.status(500).json({ error: "Failed to sync past steps." });
     }
 };
