@@ -29,7 +29,7 @@ initializeRemoteConfig();
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
-app.get("/", (req, res) => res.send("StepWars Backend Alive with Rate Limits 🚀"));
+app.get("/", (req, res) => res.send("StepWars Backend Alive Final Production🚀"));
 app.use('/api/', globalLimiter);
 app.use("/auth", authRoutes);
 app.use("/api/battle", battleRoutes);
