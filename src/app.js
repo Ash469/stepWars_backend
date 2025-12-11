@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
 import authRoutes from "./routes/auth.js";
-import {db,admin} from "./config/firebase.js"; 
+import { db, admin } from "./config/firebase.js";
 import UserModel from "./models/user.js";
 import battleRoutes from "./routes/battle.js";
 import userRoutes from "./routes/user.js";
@@ -11,7 +11,7 @@ import notificationRoutes from './routes/notification.js';
 import resetRoute from './routes/reset.js';
 import mysteryBoxRoutes from './routes/mysteryBox.js';
 import path from 'path';
-import { fileURLToPath } from 'url'; 
+import { fileURLToPath } from 'url';
 import { runDailyReset } from './utils/dailyReset.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { initializeRemoteConfig } from './config/remoteConfigService.js';
@@ -30,12 +30,15 @@ app.use('/public', express.static(path.join(__dirname, '../public')));
 
 // Routes
 app.get("/", (req, res) => res.send("StepWars Backend Alive Final Production🚀"));
+app.get("/privacy-policy", (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/privacy-policy.html'));
+});
 app.use('/api/', globalLimiter);
 app.use("/auth", authRoutes);
 app.use("/api/battle", battleRoutes);
-app.use("/api/user",userRoutes);
-app.use('/api/notifications', notificationRoutes); 
-app.use('/api/daily-reset',resetRoute);
+app.use("/api/user", userRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/daily-reset', resetRoute);
 app.use('/api/mystery-box', mysteryBoxRoutes);
 app.use('/api/config', configRoutes);
 
@@ -64,26 +67,26 @@ app.get("/sync-all-users", async (req, res) => {
       };
       return {
         updateOne: {
-          filter: { uid: firestoreData.userId }, 
+          filter: { uid: firestoreData.userId },
           update: {
-            $set: mongoUpdateData, 
-            $setOnInsert: {     
-                coins: 0,
-                multipliers: {},
-                rewards: {},
-                stats: { battlesWon: 0, knockouts: 0, coinsWon: 0 }
+            $set: mongoUpdateData,
+            $setOnInsert: {
+              coins: 0,
+              multipliers: {},
+              rewards: {},
+              stats: { battlesWon: 0, knockouts: 0, coinsWon: 0 }
             }
           },
-          upsert: true 
+          upsert: true
         }
       };
     });
     const result = await UserModel.bulkWrite(bulkOps);
     res.json({
-        message: "Bulk sync complete.",
-        syncedUsers: result.upsertedCount + result.modifiedCount,
-        newUsersCreated: result.upsertedCount,
-        existingUsersUpdated: result.modifiedCount,
+      message: "Bulk sync complete.",
+      syncedUsers: result.upsertedCount + result.modifiedCount,
+      newUsersCreated: result.upsertedCount,
+      existingUsersUpdated: result.modifiedCount,
     });
 
   } catch (err) {
