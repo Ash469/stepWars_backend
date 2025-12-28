@@ -24,7 +24,7 @@ export const syncUser = async (req, res) => {
             // email: email, <--- REMOVED THIS LINE TO FIX CONFLICT ERROR
             coins: 0,
             multipliers: { '1_5x': 0, '2x': 0, '3x': 0 },
-            rewards: { Fort: [], Monument: [], Legend: [], Badge: [] },
+            rewards: { Forts: [], Crests: [], Icons: [], Badges: [] },
             stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 },
             todaysStepCount: 0 
         }
