@@ -167,7 +167,7 @@ export const getUserRewards = async (req, res) => {
 
     try {
         const user = await UserModel.findOne({ uid: uid })
-            .populate('rewards.Fort rewards.Monument rewards.Legend rewards.Badge'); // Populate reward details
+            .populate('rewards.Forts rewards.Crests rewards.Icons rewards.Badges'); // Populate reward details
 
         if (!user) {
             return res.status(404).json({ error: "User not found." });
