@@ -29,10 +29,10 @@ const userSchema = new mongoose.Schema({
       ref: 'Reward'
     }],
     default: {
-      Fort: [],
-      Monument: [],
-      Legend: [],
-      Badge: []
+      Forts: [],
+      Crests: [],
+      Icons: [],
+      Badges: []
     }
   },
    stats: {
