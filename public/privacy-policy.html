@@ -298,6 +298,7 @@
                 <li><strong>Account management</strong> via Firebase Authentication</li>
                 <li><strong>Reward distribution</strong> based on battle outcomes</li>
                 <li><strong>Background tracking</strong> to count steps continuously</li>
+                <li><strong>Dynamic configuration</strong> via Firebase Remote Config for app settings and features</li>
             </ul>
 
             <h3>Communication</h3>
@@ -306,11 +307,18 @@
                 <li>Customer support responses</li>
             </ul>
 
+            <h3>Analytics &amp; Performance</h3>
+            <ul>
+                <li><strong>Microsoft Clarity</strong>: Session recordings and heatmaps to improve user experience</li>
+                <li><strong>Firebase Analytics</strong>: App usage patterns and feature adoption metrics</li>
+                <li>App stability monitoring and bug fixes</li>
+                <li>New feature development based on usage data</li>
+            </ul>
+
             <h3>Improvements</h3>
             <ul>
-                <li>App stability monitoring and bug fixes</li>
-                <li>Usage analytics (Clarity Flutter, Firebase Analytics)</li>
-                <li>New feature development</li>
+                <li>Performance optimization and crash detection</li>
+                <li>User experience enhancements based on analytics</li>
             </ul>
 
             <div class="section-divider"></div>
@@ -320,9 +328,11 @@
 
             <h3>Service Providers</h3>
             <ul>
-                <li><strong>Firebase/Google</strong>: Authentication, database, messaging, analytics</li>
-                <li><strong>MongoDB/AWS</strong>: Backend storage</li>
+                <li><strong>Firebase/Google</strong>: Authentication, database, messaging, analytics, remote
+                    configuration</li>
+                <li><strong>MongoDB Atlas (AWS)</strong>: Backend database storage</li>
                 <li><strong>Google Play Games</strong>: Leaderboards and achievements</li>
+                <li><strong>Microsoft Clarity</strong>: Analytics and session recording for UX improvements</li>
             </ul>
 
             <h3>Legal Requirements</h3>
@@ -345,7 +355,9 @@
             <ul>
                 <li><strong>Active accounts</strong>: Data retained while your account exists</li>
                 <li><strong>Deleted accounts</strong>: Data deleted within 30 days</li>
-                <li><strong>Battle history</strong>: May be retained for analytics and fraud prevention</li>
+                <li><strong>Battle history</strong>: May be retained for up to 12 months for analytics and fraud
+                    prevention</li>
+                <li><strong>Analytics data</strong>: Aggregated and anonymized data may be retained indefinitely</li>
             </ul>
 
             <div class="section-divider"></div>
@@ -367,12 +379,23 @@
             <div class="section-divider"></div>
 
             <h2>8. Third-Party Services</h2>
-            <p>We integrate with Google Sign-In, Firebase, and Google Play Games. Review their privacy policies:</p>
+            <p>We integrate with the following third-party services. Review their privacy policies:</p>
             <ul>
-                <li><a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
-                <li><a href="https://firebase.google.com/support/privacy" target="_blank">Firebase Privacy Policy</a>
+                <li><strong>Google Sign-In</strong>: Authentication service - <a
+                        href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+                <li><strong>Firebase Services</strong> (Authentication, Firestore, Messaging, Analytics, Remote Config):
+                    <a href="https://firebase.google.com/support/privacy" target="_blank">Firebase Privacy Policy</a>
+                </li>
+                <li><strong>Google Play Games</strong>: Leaderboards and achievements - <a
+                        href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+                <li><strong>Microsoft Clarity</strong>: Session analytics and user behavior tracking - <a
+                        href="https://privacy.microsoft.com/privacystatement" target="_blank">Microsoft Privacy
+                        Policy</a></li>
+                <li><strong>MongoDB Atlas</strong>: Backend database storage (hosted on AWS) - <a
+                        href="https://www.mongodb.com/legal/privacy-policy" target="_blank">MongoDB Privacy Policy</a>
                 </li>
             </ul>
+            <p>These services may collect and process data according to their own privacy policies.</p>
 
             <div class="section-divider"></div>
 
@@ -480,7 +503,7 @@
                 <p><strong>Email</strong>: stepwars2025@gmail.com</p>
                 <p><strong>Developer</strong>: Aayu Kharbanda</p>
                 <p><strong>App</strong>: Step Wars</p>
-                <p><strong>Package</strong>: com.stepwars.stepwarsnew_app</p>
+                <p><strong>Package</strong>: com.stepwars.stepwarsv2_app</p>
             </div>
             <p>We respond within 7 business days.</p>
 
@@ -493,7 +516,6 @@
 
         <div class="footer">
             <p><strong>Thank you for choosing Step Wars! 🚀</strong></p>
-            <p><em>Last updated: December 11, 2025</em></p>
         </div>
     </div>
 </body>
