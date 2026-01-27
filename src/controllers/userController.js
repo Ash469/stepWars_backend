@@ -135,13 +135,22 @@ export const syncUserSteps = async (req, res) => {
         const { uid, todaysStepCount } = req.body;
         if (!uid || todaysStepCount === undefined) return res.status(400).json({ error: 'Missing data' });
 
-        const updatedUser = await UserModel.findOneAndUpdate(
-            { uid: uid },
-            { $set: { todaysStepCount: todaysStepCount } },
-            { new: true }
-        );
-        if (!updatedUser) return res.status(404).json({ error: 'User not found' });
-        res.status(200).json({ message: 'Synced', user: updatedUser });
+        // 1. Fetch the user first
+        let user = await UserModel.findOne({ uid: uid });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        // 2. TRIGGER RESET CHECK: Ensure we archive yesterday before saving today
+        const resetUser = await handleDailyReset(user);
+        if (resetUser) {
+            user = resetUser;
+        }
+
+        // 3. Now save the steps (if a reset happened, it starts from the new synced value)
+        user.todaysStepCount = todaysStepCount;
+        user.lastActive = new Date(); // Update this so we know they were active today
+        await user.save();
+
+        res.status(200).json({ message: 'Synced', user: user });
     } catch (error) {
         console.error("Error syncing steps:", error);
         res.status(500).json({ error: 'Server error' });
