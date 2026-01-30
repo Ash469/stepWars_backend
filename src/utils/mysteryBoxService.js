@@ -5,21 +5,21 @@ import { getMysteryBoxCosts } from '../config/remoteConfigService.js';
 const BOX_CONFIG = {
     bronze: {
         rewards: {
-            coins: { chance: 40, minScale: 0.4, maxScale: 1.5 },
+            coins: { chance: 40, minScale: 1.0, maxScale: 1.5 },
             multiplier: { chance: 30, types: [{ type: '1_5x', chance: 70 }, { type: '2x', chance: 25 }, { type: '3x', chance: 5 }] },
             collectible: { chance: 30, tiers: [{ tier: 'Rare', chance: 80 }, { tier: 'Epic', chance: 20 }] },
         },
     },
     silver: {
         rewards: {
-            coins: { chance: 35, minScale: 0.4, maxScale: 1.5 },
+            coins: { chance: 35, minScale: 1.0, maxScale: 2.0 },
             multiplier: { chance: 25, types: [{ type: '1_5x', chance: 50 }, { type: '2x', chance: 35 }, { type: '3x', chance: 15 }] },
             collectible: { chance: 40, tiers: [{ tier: 'Rare', chance: 50 }, { tier: 'Epic', chance: 35 }, { tier: 'Mythic', chance: 15 }] },
         },
     },
     gold: {
         rewards: {
-            coins: { chance: 30, minScale: 0.4, maxScale: 1.5 },
+            coins: { chance: 30, minScale: 1.0, maxScale: 3.0 },
             multiplier: { chance: 20, types: [{ type: '1_5x', chance: 35 }, { type: '2x', chance: 40 }, { type: '3x', chance: 25 }] },
             collectible: { chance: 50, tiers: [{ tier: 'Epic', chance: 40 }, { tier: 'Mythic', chance: 45 }, { tier: 'Legendary', chance: 15 }] },
         },
