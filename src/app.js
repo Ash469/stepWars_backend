@@ -73,8 +73,8 @@ app.get("/sync-all-users", async (req, res) => {
             $setOnInsert: {
               coins: 0,
               multipliers: {},
-              rewards: {},
-              stats: { battlesWon: 0, knockouts: 0, coinsWon: 0 }
+              rewards: { Forts: [], Crests: [], Icons: [], Badges: [] },
+              stats: { battlesWon: 0, knockouts: 0, totalBattles: 0 }
             }
           },
           upsert: true
