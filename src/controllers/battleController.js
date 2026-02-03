@@ -221,7 +221,7 @@ const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player
     let title = '';
     let winnerBody = '', loserBody = '', drawP1Body = '', drawP2Body = '';
     let imageUrl = '', winImageUrl = '', lossImageUrl = '';
-    
+
     try {
         if (result === 'DRAW') {
             title = "It's a Draw!";
@@ -229,15 +229,15 @@ const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player
             drawP2Body = `The battle ended in a draw. You earned ${loserCoins} coins!`;
             imageUrl = `${baseUrl}/public/draw-icon.png`;
 
-             if (!player1Id.startsWith('bot_')) sendNotificationToUser(player1Id, title, drawP1Body, imageUrl);
-             if (!player2Id.startsWith('bot_')) sendNotificationToUser(player2Id, title, drawP2Body, imageUrl);
+            if (!player1Id.startsWith('bot_')) sendNotificationToUser(player1Id, title, drawP1Body, imageUrl);
+            if (!player2Id.startsWith('bot_')) sendNotificationToUser(player2Id, title, drawP2Body, imageUrl);
 
         } else if (result === 'KO') {
             const koTitleWin = 'K.O. VICTORY!';
             const koTitleLoss = 'K.O. Defeat';
             winnerBody = finalRewardItem
-                    ? `Knockout! You earned ${winnerCoins} coins and won a ${finalRewardItem.tier} ${finalRewardItem.name}!`
-                    : `Knockout! You earned ${winnerCoins} bonus coins.`;
+                ? `Knockout! You earned ${winnerCoins} coins and won a ${finalRewardItem.tier} ${finalRewardItem.name}!`
+                : `Knockout! You earned ${winnerCoins} bonus coins.`;
             loserBody = `You got knocked out! You earned ${loserCoins} coins.`;
             winImageUrl = `${baseUrl}/public/ko-icon.png`;
             lossImageUrl = `${baseUrl}/public/lose-icon.png`;
@@ -248,9 +248,9 @@ const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player
         } else if (result === 'WIN') {
             const winTitleWin = 'Victory!';
             const winTitleLoss = 'Battle Lost';
-             winnerBody = finalRewardItem
-                    ? `You won! Earned ${winnerCoins} coins and a ${finalRewardItem.tier} ${finalRewardItem.name}!`
-                    : `Congratulations! You won and earned ${winnerCoins} coins!`;
+            winnerBody = finalRewardItem
+                ? `You won! Earned ${winnerCoins} coins and a ${finalRewardItem.tier} ${finalRewardItem.name}!`
+                : `Congratulations! You won and earned ${winnerCoins} coins!`;
             loserBody = `You lost but earned ${loserCoins} coins.`;
             winImageUrl = `${baseUrl}/public/win-icon.png`;
             lossImageUrl = `${baseUrl}/public/lose-icon.png`;
@@ -258,20 +258,21 @@ const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player
             if (winnerId && !winnerId.startsWith('bot_')) sendNotificationToUser(winnerId, winTitleWin, winnerBody, winImageUrl);
             if (loserId && !loserId.startsWith('bot_')) sendNotificationToUser(loserId, winTitleLoss, loserBody, lossImageUrl);
         }
-    
+
         // Cleanup RTDB after delay
         const rtdbRef = admin.database().ref(`games/${gameId}`);
         setTimeout(() => {
             rtdbRef.remove().catch(err => console.error("Error removing game node:", err));
         }, 60000);
-        
-    } catch(error) {
-         console.error(`[endBattle Cleanup] Error:`, error);
+
+    } catch (error) {
+        console.error(`[endBattle Cleanup] Error:`, error);
     }
 };
 
 export const endBattle = async (req, res) => {
     const { gameId, player1FinalScore, player2FinalScore } = req.body;
+    console.log(`[endBattle] Request received for gameId: ${gameId}. Scores: P1=${player1FinalScore}, P2=${player2FinalScore}`);
     if (!gameId) return res.status(400).json({ error: "Game ID is required" });
 
     try {
