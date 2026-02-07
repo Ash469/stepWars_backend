@@ -48,7 +48,10 @@ const userSchema = new mongoose.Schema({
     type: Map,
     of: Date,
     default: {}
-  }
+  },
+
+  interestAreas: { type: [String], default: [] },
+  avgDailySteps: { type: String, default: null }
 
 });
 

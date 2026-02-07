@@ -116,6 +116,7 @@ export const updateUserProfile = async (req, res) => {
     try {
         const { uid } = req.params;
         const { stats, rewards, multipliers, coins, ...updateData } = req.body;
+        
         if (!uid) return res.status(400).json({ error: 'User UID is required.' });
         const updatedUser = await UserModel.findOneAndUpdate(
             { uid: uid },

@@ -47,23 +47,10 @@ export const openMysteryBox = async (userId, boxType) => {
     if (!user) throw new Error('User not found.');
     if (user.coins < price) throw new Error('Not enough coins.');
 
-    if (!user.mysteryBoxLastOpened) user.mysteryBoxLastOpened = new Map();
     if (!user.multipliers) user.multipliers = new Map();
     if (!user.rewards) user.rewards = new Map();
 
-    const lastOpenedTimestamp = user.mysteryBoxLastOpened.get(boxType);
-    const now = new Date();
-
-    if (lastOpenedTimestamp) {
-        const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-        if (lastOpenedTimestamp > twentyFourHoursAgo) {
-            // It has NOT been 24 hours yet
-            throw new Error(`You can open the ${boxType} box again after 24 hours.`);
-        }
-    }
-
     user.coins -= price;
-    user.mysteryBoxLastOpened.set(boxType, now);
 
     const rewardCategories = Object.keys(box.rewards).map(key => ({ type: key, chance: box.rewards[key].chance }));
     const chosenCategoryItem = selectWeightedRandom(rewardCategories);
@@ -128,15 +115,27 @@ export const openMysteryBox = async (userId, boxType) => {
                 Object.values(userRewardsObject)
                     .flat() // Flatten arrays from all categories
                     .map(id => id?.toString()) // Safely convert to string
-                    .filter(id => id != null) // Filter out null/undefined
+                    .filter(id => id != null)
             );
 
-            const unownedRewards = (await RewardModel.find({ tier: chosenTier })).filter(r => !ownedRewardIds.has(r._id.toString()));
+            const userInterests = user.interestAreas || [];
+            let query = { tier: chosenTier };
+            
+            if (userInterests.length > 0) {
+                query.interest = { $in: userInterests };
+            }
+            
+            let availableRewards = await RewardModel.find(query);
+            let unownedRewards = availableRewards.filter(r => !ownedRewardIds.has(r._id.toString()));
+            
+            if (unownedRewards.length === 0 && userInterests.length > 0) {
+                availableRewards = await RewardModel.find({ tier: chosenTier });
+                unownedRewards = availableRewards.filter(r => !ownedRewardIds.has(r._id.toString()));
+            }
 
             if (unownedRewards.length > 0) {
                 const rewardItem = unownedRewards[Math.floor(Math.random() * unownedRewards.length)];
                 const rewardCategory = rewardItem.type;
-                // Ensure the category exists in the map before pushing
                 if (!user.rewards.has(rewardCategory)) {
                     user.rewards.set(rewardCategory, []);
                 }

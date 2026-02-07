@@ -5,9 +5,9 @@ const defaultCosts = {
   '1_5x': 100,
   '2x': 200,
   '3x': 300,
-  'bronze_box_price': 5000,
-  'silver_box_price': 10000,
-  'gold_box_price': 20000,
+  'bronze_box_price': 1000,   // V1.5: was 5000
+  'silver_box_price': 5000,   // V1.5: was 10000
+  'gold_box_price': 10000,    // V1.5: was 20000
 };
 
 
