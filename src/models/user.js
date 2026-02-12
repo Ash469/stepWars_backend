@@ -49,7 +49,10 @@ const userSchema = new mongoose.Schema({
     of: Date,
     default: {}
   },
-
+  zeroCoinSilverLastGiven: {
+  type: Date,
+  default: null
+},
   interestAreas: { type: [String], default: [] },
   avgDailySteps: { type: String, default: null }
 
