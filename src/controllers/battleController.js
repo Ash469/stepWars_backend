@@ -5,7 +5,7 @@ import UserModel from "../models/user.js";
 import RewardModel from "../models/reward.js";
 import { sendNotificationToUser } from '../utils/notificationService.js';
 import { decidePotentialReward } from "../utils/rewardService.js";
-import { getMultiplierCosts } from '../config/remoteConfigService.js';
+import { getMultiplierCosts, getWinSteps } from '../config/remoteConfigService.js';
 
 
 // --- createPvpBattle, createBotBattle, createFriendBattle, joinFriendBattle remain the same ---
@@ -272,8 +272,11 @@ const sendNotificationsOnlyAndCleanup = async (gameId, result, player1Id, player
 
 export const endBattle = async (req, res) => {
     const { gameId, player1FinalScore, player2FinalScore } = req.body;
+    console.log("[endBattle] --- START ---");
     console.log(`[endBattle] Request received for gameId: ${gameId}. Scores: P1=${player1FinalScore}, P2=${player2FinalScore}`);
+    console.log('[endBattle] Request body:', JSON.stringify(req.body));
     if (!gameId) return res.status(400).json({ error: "Game ID is required" });
+
 
     try {
         const rtdbRef = admin.database().ref(`games/${gameId}`);
@@ -283,57 +286,99 @@ export const endBattle = async (req, res) => {
         ]);
 
         if (!snapshot.exists() || !battleDetails) {
+            console.log('[endBattle] Battle not found in RTDB or MongoDB.', { exists: snapshot.exists(), battleDetails });
             return res.status(404).json({ error: "Battle not found." });
         }
         const battleData = snapshot.val();
+        console.log('[endBattle] RTDB battleData:', JSON.stringify(battleData));
+        console.log('[endBattle] MongoDB battleDetails:', JSON.stringify(battleDetails));
         const player1Id = battleData?.player1Id;
         const player2Id = battleData?.player2Id;
 
         const gameType = battleDetails.gameType;
         const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
         const p2Score = player2FinalScore ?? battleData.player2Score ?? 0;
+        console.log(`[endBattle] Calculated scores: p1Score=${p1Score}, p2Score=${p2Score}`);
 
+        // Use win_steps from remote config
+        const winSteps = getWinSteps();
+        console.log(`[endBattle] winSteps from remote config: ${winSteps}`);
         let winnerId = null, loserId = null, result = "DRAW", isKnockout = false;
         let winnerCoins = 0, loserCoins = 0;
-        const scoreDifference = Math.abs(p1Score - p2Score);
 
-        if (scoreDifference >= 200) {
-            result = "KO";
-            isKnockout = true;
-            winnerId = (p1Score > p2Score) ? player1Id : player2Id;
-            loserId = (p1Score > p2Score) ? player2Id : player1Id;
-        } else if (scoreDifference > 50) {
-            result = "WIN";
-            winnerId = (p1Score > p2Score) ? player1Id : player2Id;
-            loserId = (p1Score > p2Score) ? player2Id : player1Id;
-        } else {
+        // Determine winner based on win_steps
+        if (p1Score >= winSteps && p2Score >= winSteps) {
+            // Both reached in same update or both >= winSteps: draw
             result = "DRAW";
+            console.log('[endBattle] Both players reached winSteps. Result: DRAW');
+        } else if (p1Score >= winSteps) {
+            result = "WIN";
+            winnerId = player1Id;
+            loserId = player2Id;
+            console.log(`[endBattle] Player 1 (${player1Id}) wins. Result: WIN`);
+        } else if (p2Score >= winSteps) {
+            result = "WIN";
+            winnerId = player2Id;
+            loserId = player1Id;
+            console.log(`[endBattle] Player 2 (${player2Id}) wins. Result: WIN`);
+        } else {
+            result ="LOSE";
+            console.log('[endBattle] Neither player reached winSteps. Result: LOSE');
         }
 
-        // Calculate Coins
+        // Calculate Coins (update logic for BOT battles as per new table)
         if (gameType === 'FRIEND') {
             const pot = p1Score + p2Score;
             if (result === "DRAW") {
                 winnerCoins = Math.floor(pot / 2);
                 loserCoins = Math.ceil(pot / 2);
+                console.log(`[endBattle] FRIEND battle DRAW. pot=${pot}, winnerCoins=${winnerCoins}, loserCoins=${loserCoins}`);
             } else {
                 winnerCoins = pot;
                 loserCoins = 0;
+                console.log(`[endBattle] FRIEND battle WIN. pot=${pot}, winnerCoins=${winnerCoins}, loserCoins=${loserCoins}`);
+            }
+        } else if (gameType === 'BOT') {
+            // Determine bot type for reward
+            let botId = null;
+            if (player1Id && player1Id.startsWith('bot_')) botId = player1Id;
+            if (player2Id && player2Id.startsWith('bot_')) botId = player2Id;
+            let botType = null;
+            if (botId) {
+                const botObj = BotService.getBotById(botId);
+                botType = botObj ? botObj.type : null;
+            }
+            // Set reward based on bot type
+            const botRewards = {
+                PAWN: 1000,
+                BISHOP: 1500,
+                ROOK: 2000,
+                KNIGHT: 2500,
+                QUEEN: 3000
+            };
+            if (result === "WIN") {
+                
+                winnerCoins = botType && botRewards[botType] ? botRewards[botType] : 1000;
+                loserCoins = 0;
+                console.log(`[endBattle] BOT battle WIN. botType=${botType}, winnerCoins=${winnerCoins}`);
+            } else {
+                
+                winnerCoins = 0;
+                loserCoins = 0;
+                console.log(`[endBattle] BOT battle DRAW/LOSE. botType=${botType}, winnerCoins=${winnerCoins}, loserCoins=${loserCoins}`);
             }
         } else {
-            if (result === "KO") {
-                const winnerScore = winnerId === player1Id ? p1Score : p2Score;
-                const loserScore = loserId === player1Id ? p1Score : p2Score;
-                winnerCoins = winnerScore + 3000;
-                loserCoins = loserScore;
-            } else if (result === "WIN") {
+           
+            if (result === "WIN") {
                 const winnerScore = winnerId === player1Id ? p1Score : p2Score;
                 const loserScore = loserId === player1Id ? p1Score : p2Score;
                 winnerCoins = winnerScore + 1000;
                 loserCoins = loserScore;
+                console.log(`[endBattle] ${gameType} battle WIN. winnerId=${winnerId}, winnerScore=${winnerScore}, winnerCoins=${winnerCoins}, loserId=${loserId}, loserScore=${loserScore}, loserCoins=${loserCoins}`);
             } else {
                 winnerCoins = p1Score;
                 loserCoins = p2Score;
+                console.log(`[endBattle] ${gameType} battle DRAW/LOSE. winnerCoins=${winnerCoins}, loserCoins=${loserCoins}`);
             }
         }
 
@@ -341,7 +386,7 @@ export const endBattle = async (req, res) => {
         let finalRewardItem = null;
 
         // Update Winner Stats & Rewards
-        if (result !== 'DRAW' && winnerId && !winnerId.startsWith('bot_')) {
+        if (result === 'WIN' && winnerId && !winnerId.startsWith('bot_')) {
             const winnerUpdatePayload = {
                 $inc: {
                     coins: winnerCoins,
@@ -358,30 +403,52 @@ export const endBattle = async (req, res) => {
                 }
             }
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
+            console.log('[endBattle] Winner update payload:', JSON.stringify(winnerUpdatePayload));
         }
 
         // Update Loser Stats
-        if (result !== 'DRAW' && loserId && !loserId.startsWith('bot_')) {
-            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, {
+        if (result === 'WIN' && loserId && !loserId.startsWith('bot_')) {
+            const loserUpdatePayload = {
                 $inc: {
                     coins: loserCoins,
                     'stats.totalBattles': 1
                 }
-            }));
+            };
+            updatePromises.push(UserModel.findOneAndUpdate({ uid: loserId }, loserUpdatePayload));
+            console.log('[endBattle] Loser update payload:', JSON.stringify(loserUpdatePayload));
         }
 
         // Update Draw Stats
         if (result === 'DRAW') {
             if (!player1Id.startsWith('bot_')) {
-                updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } }));
+                const drawP1Payload = { $inc: { coins: winnerCoins, 'stats.totalBattles': 1 } };
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, drawP1Payload));
+                console.log('[endBattle] Draw update payload for player1:', JSON.stringify(drawP1Payload));
             }
             if (!player2Id.startsWith('bot_')) {
-                updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } }));
+                const drawP2Payload = { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } };
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, drawP2Payload));
+                console.log('[endBattle] Draw update payload for player2:', JSON.stringify(drawP2Payload));
             }
         }
+        if(result === 'LOSE') {
+            // Both players lose: increment totalBattles for both, add 0 coins
+            if (player1Id && !player1Id.startsWith('bot_')) {
+                const loseP1Payload = { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } };
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player1Id }, loseP1Payload));
+                console.log('[endBattle] Lose update payload for player1:', JSON.stringify(loseP1Payload));
+            }
+            if (player2Id && !player2Id.startsWith('bot_')) {
+                const loseP2Payload = { $inc: { coins: loserCoins, 'stats.totalBattles': 1 } };
+                updatePromises.push(UserModel.findOneAndUpdate({ uid: player2Id }, loseP2Payload));
+                console.log('[endBattle] Lose update payload for player2:', JSON.stringify(loseP2Payload));
+            }
+
+            }
 
         if (updatePromises.length > 0) {
             await Promise.all(updatePromises);
+            console.log('[endBattle] User stats updated in MongoDB.');
         }
 
         // 1. Update MongoDB
@@ -395,6 +462,7 @@ export const endBattle = async (req, res) => {
             "rewards.coins": winnerId ? winnerCoins : 0,
             "rewards.item": finalRewardItem ? finalRewardItem._id : null,
         });
+        console.log('[endBattle] Battle document updated in MongoDB.');
 
         // 2. --- CRITICAL FIX: Update RTDB SYNCHRONOUSLY HERE --- 
         // This ensures Player 2 gets the signal immediately.
@@ -411,6 +479,7 @@ export const endBattle = async (req, res) => {
                 imagePath: finalRewardItem.imagePath
             } : null
         });
+        console.log('[endBattle] RTDB updated with final results.');
 
         // 3. Send Response to Player 1
         res.status(200).json({
@@ -434,6 +503,7 @@ export const endBattle = async (req, res) => {
                 }
             }
         });
+        console.log('[endBattle] Response sent to client.');
 
         // 4. Send Notifications & Cleanup (Background Task)
         // We removed the RTDB update from inside this function since we did it above
@@ -441,6 +511,7 @@ export const endBattle = async (req, res) => {
             .catch(error => {
                 console.error(`[endBattle Cleanup] Error:`, error);
             });
+        console.log('[endBattle] --- END ---');
 
     } catch (error) {
         console.error("[endBattle] Error:", error);
