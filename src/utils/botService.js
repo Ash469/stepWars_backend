@@ -4,6 +4,7 @@ const BOTS = [
   { id: 'bot_bishop', name: 'Bishop Bot', type: 'BISHOP' },
   { id: 'bot_rook', name: 'Rook Bot', type: 'ROOK' },
   { id: 'bot_knight', name: 'Knight Bot', type: 'KNIGHT' },
+  { id: 'bot_queen', name: 'Queen Bot', type: 'QUEEN' },
 ];
 
 class BotService {
