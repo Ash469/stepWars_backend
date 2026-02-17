@@ -315,6 +315,11 @@ export const endBattle = async (req, res) => {
 
         // Use win_steps from remote config
         const winSteps = getWinSteps();
+        if (p1Score < winSteps && p2Score < winSteps) {
+       console.log("❌ Early endBattle attempt ignored.");
+       return res.status(400).json({ error: "Win condition not met." });
+         }
+
         console.log(`[endBattle] winSteps from remote config: ${winSteps}`);
         let winnerId = null, loserId = null, result = "DRAW", isKnockout = false;
         let winnerCoins = 0, loserCoins = 0;
@@ -408,13 +413,7 @@ export const endBattle = async (req, res) => {
                     'stats.knockouts': isKnockout ? 1 : 0,
                 }
             };
-            if (winnerId === player1Id && battleDetails.potentialReward) {
-                finalRewardItem = await RewardModel.findById(battleDetails.potentialReward);
-                if (finalRewardItem) {
-                    const rewardCategory = finalRewardItem.type;
-                    winnerUpdatePayload.$push = { [`rewards.${rewardCategory}`]: finalRewardItem._id };
-                }
-            }
+           
             updatePromises.push(UserModel.findOneAndUpdate({ uid: winnerId }, winnerUpdatePayload));
             console.log('[endBattle] Winner update payload:', JSON.stringify(winnerUpdatePayload));
         }
@@ -473,7 +472,7 @@ export const endBattle = async (req, res) => {
             player1FinalScore: p1Score,
             player2FinalScore: p2Score,
             "rewards.coins": winnerId ? winnerCoins : 0,
-            "rewards.item": finalRewardItem ? finalRewardItem._id : null,
+           
         });
         console.log('[endBattle] Battle document updated in MongoDB.');
 
@@ -486,11 +485,7 @@ export const endBattle = async (req, res) => {
             loserId: loserId,
             'rewards/winnerCoins': winnerCoins,
             'rewards/loserCoins': loserCoins,
-            'rewards/item': finalRewardItem ? {
-                name: finalRewardItem.name,
-                tier: finalRewardItem.tier,
-                imagePath: finalRewardItem.imagePath
-            } : null
+            
         });
         console.log('[endBattle] RTDB updated with final results.');
 
@@ -507,12 +502,7 @@ export const endBattle = async (req, res) => {
                 rewards: {
                     winnerCoins: winnerCoins,
                     loserCoins: loserCoins,
-                    item: finalRewardItem ? {
-                        name: finalRewardItem.name,
-                        tier: finalRewardItem.tier,
-                        imagePath: finalRewardItem.imagePath,
-                        description: finalRewardItem.description
-                    } : null,
+                    
                 }
             }
         });
