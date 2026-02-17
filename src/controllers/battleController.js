@@ -74,6 +74,19 @@ export const createBotBattle = async (req, res) => {
         if (!selectedBot) {
             throw new Error(`Bot with ID ${botId || 'random'} not found.`);
         }
+        const entryCost = 500;
+
+        // fetch user and deduct cost
+        const user = await UserModel.findOne({ uid: userId });
+        if (!user) {
+            return res.status(404).json({ error: "User not found." });
+        }
+        if (user.coins < entryCost) {
+            return res.status(402).json({ error: "Not enough coins to play this bot battle." });
+        }
+
+        // deduct coins
+        await UserModel.updateOne({ uid: userId }, { $inc: { coins: -entryCost } });
         const potentialReward = await decidePotentialReward(userId);
         console.log(`[createBotBattle] Potential reward selected for game ${gameId}: ${potentialReward?.name || 'None'}`);
         const newBattle = new BattleModel({
@@ -296,8 +309,8 @@ export const endBattle = async (req, res) => {
         const player2Id = battleData?.player2Id;
 
         const gameType = battleDetails.gameType;
-        const p1Score = player1FinalScore ?? battleData.player1Score ?? 0;
-        const p2Score = player2FinalScore ?? battleData.player2Score ?? 0;
+        const p1Score = battleData.player1Score ?? 0;
+        const p2Score = battleData.player2Score ?? 0;
         console.log(`[endBattle] Calculated scores: p1Score=${p1Score}, p2Score=${p2Score}`);
 
         // Use win_steps from remote config
