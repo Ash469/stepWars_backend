@@ -10,6 +10,8 @@ import {
 } from "../controllers/battleController.js";
 import { actionLimiter } from '../middleware/rateLimiter.js';
 
+const router = express.Router();
+
 router.post("/pvp/create", actionLimiter, createPvpBattle);
 router.post("/bot", actionLimiter, createBotBattle);
 router.post("/friend/create", actionLimiter, createFriendBattle);
