@@ -1,3 +1,5 @@
+// Returns the win_steps value from remote config, defaulting to 1000 if not set or invalid
+
 import { admin } from './firebase.js';
 
 let configCache = {};
@@ -5,11 +7,19 @@ const defaultCosts = {
   '1_5x': 100,
   '2x': 200,
   '3x': 300,
-  'bronze_box_price': 1000,   // V1.5: was 5000
-  'silver_box_price': 5000,   // V1.5: was 10000
-  'gold_box_price': 10000,    // V1.5: was 20000
+  'bronze_box_price': 1000,   
+  'silver_box_price': 5000,   
+  'gold_box_price': 10000,  
+  
 };
 
+export const getWinSteps = () => {
+  const winSteps = parseInt(configCache['win_steps'], 10);
+  if (isNaN(winSteps) || winSteps <= 0) {
+    return 1000;
+  }
+  return winSteps;
+};
 
 const fetchAndCacheConfig = async (isInitial = false) => {
   try {
