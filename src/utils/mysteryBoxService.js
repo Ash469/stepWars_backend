@@ -193,89 +193,125 @@ export const openMysteryBox = async (userId, boxType) => {
       }
       const chosenTier = chosenTierItem.tier;
       // Ensure rewards map exists and convert nested objects if needed
-      const userRewardsObject = user.rewards.toObject
-        ? user.rewards.toObject()
-        : user.rewards || {};
-      const ownedRewardIds = new Set(
-        Object.values(userRewardsObject)
-          .flat() // Flatten arrays from all categories
-          .map((id) => id?.toString()) // Safely convert to string
-          .filter((id) => id != null),
-      );
+      const userRewardsObject = user.rewards || {};
+
+
+      //const ownedRewardIds = new Set();
+
+//       if (user.rewards && typeof user.rewards.values === "function") {
+//      for (const arr of user.rewards.values()) {
+//      if (Array.isArray(arr)) {
+//      for (const id of arr) {
+//      if (id) ownedRewardIds.add(id.toString());
+//       }
+//     }
+//   }
+// }
+const ownedRewardIds = new Set();
+
+if (user.rewards && typeof user.rewards.entries === "function") {
+        for (const [, arr] of user.rewards.entries()) {
+          if (Array.isArray(arr)) {
+            for (const id of arr) {
+              if (id) ownedRewardIds.add(id.toString());
+            }
+          }
+        }
+      }
+
+// DEBUG DUPLICATES
+// const rawIds = [];
+
+// for (const arr of user.rewards.values()) {
+//   if (Array.isArray(arr)) {
+//     for (const id of arr) {
+//       if (id) rawIds.push(id.toString());
+//     }
+//   }
+// }
+
+// console.log("Raw Count:", rawIds.length);
+// console.log("Unique Count:", new Set(rawIds).size);
+
+
+//console.log("Total Owned Computed:", ownedRewardIds.size);
+
        // query is created and a pool generated based on the user's interests. If no rewards are found, it falls back to a broader query without interest filtering. 
       const userInterests = user.interestAreas || [];
-      let query = { tier: chosenTier };
+      
+    const rewardPools = [
+    //  Interest + Tier
+    userInterests.length > 0
+     ? { tier: chosenTier, interests: { $in: userInterests } }
+     : null,
 
-      if (userInterests.length > 0) {
-        query.interests = { $in: userInterests };
-      }
+     // Interest + Any Tier
+     userInterests.length > 0
+    ? { interests: { $in: userInterests } }
+    : null,
 
-      let availableRewards = await RewardModel.find(query);
-      // if no rewards fetched with that user interest, give any reward from that tier
-      if (availableRewards.length === 0 && userInterests.length > 0) {
-      availableRewards = await RewardModel.find({ tier: chosenTier });
-      }
+    // Tier Only
+    { tier: chosenTier },
 
-      // If still none exist, real data issue
-      if (availableRewards.length === 0) {
-      throw new Error(`No rewards found for tier ${chosenTier}`);
-      }
+   // Any Reward
+    {}
+   ].filter(Boolean);
 
-      let unownedRewards = availableRewards.filter(
-        (r) => !ownedRewardIds.has(r._id.toString()),
-      );
+   let selectedReward = null;
+  //loop 
+   for (const poolQuery of rewardPools) {
+   const rewards = await RewardModel.find(poolQuery);
+  // console.log("---- Checking Pool ----");
+  // console.log("Query:", poolQuery);
+  // console.log("Total Rewards In Pool:", rewards.length);
+  if (rewards.length === 0) continue;
 
-      if (unownedRewards.length === 0 && userInterests.length > 0) {
-        availableRewards = await RewardModel.find({ tier: chosenTier });
-        unownedRewards = availableRewards.filter(
-          (r) => !ownedRewardIds.has(r._id.toString()),
-        );
-      }
+  const unowned = rewards.filter(
+    (r) => !ownedRewardIds.has(r._id.toString())
+  );
+//console.log("Unowned In Pool:", unowned.length);
+  if (unowned.length > 0) {
+    selectedReward =
+      unowned[Math.floor(Math.random() * unowned.length)];
+    break;
+   }
+ }
+// console.log("Chosen Tier:", chosenTier);
+// console.log("User Interests:", userInterests);
+// console.log("Owned Count:", ownedRewardIds.size);
+ // if none left, give from pool 1 
+ if (!selectedReward) {
+  const firstPoolQuery = rewardPools[0];
+  //console.log("No unowned rewards found in any pool, falling back to first pool query:", firstPoolQuery);
 
-      if (unownedRewards.length > 0) {
-        const rewardItem =
-          unownedRewards[Math.floor(Math.random() * unownedRewards.length)];
-        const rewardCategory = rewardItem.type;
-        if (!user.rewards.has(rewardCategory)) {
-          user.rewards.set(rewardCategory, []);
-        }
-        const categoryArray = user.rewards.get(rewardCategory);
-        categoryArray.push(rewardItem._id);
-        // No need to set again if modifying array in place unless it was newly created
-        if (!user.rewards.has(rewardCategory)) {
-          // Should not happen now, but safe check
-          user.rewards.set(rewardCategory, categoryArray);
-        }
-
-        finalReward = { type: "collectible", item: rewardItem };
-      } else {
-        // Fallback if no unowned rewards found in the chosen tier
-        // const fallbackAmount = Math.floor(price / 2);
-        // user.coins += fallbackAmount;
-        // finalReward = { type: "coins", amount: fallbackAmount, fallback: true };
-      const rewardItem =
-      availableRewards[Math.floor(Math.random() * availableRewards.length)];
-      const rewardCategory = rewardItem.type;
-      if (!user.rewards.has(rewardCategory)) {
-      user.rewards.set(rewardCategory, []);
-      }
-      const categoryArray = user.rewards.get(rewardCategory);
-      categoryArray.push(rewardItem._id);
-      finalReward = { type: "collectible", item: rewardItem };
-      }
-      break;
-
-    // default: // Fallback for unknown category
-    //   console.error(`Unknown reward category selected: ${chosenCategory}`);
-    //   const defaultFallbackAmount = Math.floor(price / 4);
-    //   user.coins += defaultFallbackAmount;
-    //   finalReward = {
-    //     type: "coins",
-    //     amount: defaultFallbackAmount,
-    //     fallback: true,
-    //   };
-    //   break;
+  if (!firstPoolQuery) {
+    throw new Error("No valid primary reward pool.");
   }
+
+  const firstPoolRewards = await RewardModel.find(firstPoolQuery);
+
+  if (firstPoolRewards.length === 0) {
+    throw new Error("No rewards available in primary pool.");
+  }
+
+  selectedReward =
+    firstPoolRewards[
+      Math.floor(Math.random() * firstPoolRewards.length)
+    ];
+}
+
+  const rewardCategory = selectedReward.type;
+  if (!user.rewards.has(rewardCategory)) {
+  user.rewards.set(rewardCategory, []);
+  }
+
+  user.rewards.get(rewardCategory).push(selectedReward._id);
+
+  finalReward = { type: "collectible", item: selectedReward };
+
+
+ 
+   }
 
   await user.save();
 
